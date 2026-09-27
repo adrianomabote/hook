@@ -283,8 +283,6 @@
 .cc-capacity { display: flex; align-items: center; justify-content: space-between; margin: 13px 0; }
 .cc-capacity-label { color: #d6e2d2; font-size: 9px; }
 .cc-capacity-value { color: #ecf5cf; font-family: "DM Mono", monospace; font-size: 12px; }
-.cc-capacity-meter { height: 4px; overflow: hidden; margin-top: 8px; border-radius: 99px; background: rgba(255,255,255,.15); }
-.cc-capacity-meter span { display: block; width: 41%; height: 100%; border-radius: inherit; background: #cfdf9b; }
 .cc-aside-foot { display: flex; gap: 9px; margin-top: 25px; color: #c5d4c1; font-size: 9px; line-height: 1.55; }
 .cc-aside-foot svg { width: 15px; height: 15px; flex: 0 0 auto; color: #d3e3a4; }
 .cc-work-main { min-width: 0; padding: 25px 29px 0; }
@@ -320,7 +318,6 @@
 .cc-mode-tab:hover { color: #496c56; }
 .cc-mode-tab.active { color: var(--cc-green); border-color: var(--cc-green); }
 .cc-mode-tab svg { width: 16px; height: 16px; }
-.cc-mode-tab small { color: #9ba69d; font-size: 8px; font-weight: 600; }
 .cc-panel { padding: 21px 0 20px; animation: cc-enter .22s ease both; }
 @keyframes cc-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 .cc-label { display: block; margin-bottom: 8px; color: #40584b; font-size: 10px; font-weight: 800; }
@@ -611,7 +608,7 @@
   .cc-work-aside { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 18px; padding: 16px 19px; }
   .cc-aside-title { margin: 7px 0 4px; font-size: 16px; }
   .cc-aside-copy { max-width: 300px; }
-  .cc-aside-divider, .cc-capacity-meter, .cc-aside-foot { display: none; }
+  .cc-aside-divider, .cc-aside-foot { display: none; }
   .cc-capacity { grid-column: 2; grid-row: 1 / span 3; display: block; margin: 0; text-align: right; }
   .cc-capacity-label, .cc-capacity-value { display: block; }
   .cc-capacity-value { margin-top: 5px; font-size: 11px; }
@@ -648,7 +645,6 @@
   .cc-demo-badge { padding: 6px; font-size: 6px; }
   .cc-mode-tabs { gap: 17px; margin-top: 18px; }
   .cc-mode-tab { gap: 6px; font-size: 9px; }
-  .cc-mode-tab small { display: none; }
   .cc-panel { padding: 17px 0; }
   .cc-fieldrow { gap: 6px; }
   .cc-primary-button { gap: 6px; padding: 0 10px; font-size: 8px; }

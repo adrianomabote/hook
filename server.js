@@ -11,7 +11,7 @@ const XLSX_BUNDLE_PATH = path.join(
   "xlsx.full.min.js",
 );
 const WHAPI_URL = "https://gate.whapi.cloud/contacts";
-const MAX_PHONES_PER_REQUEST = 100;
+const MAX_NUMBERS_PER_CONSULTATION = 1500;
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_WINDOW_MS = 60 * 1000;
 const MAX_REQUESTS_PER_WINDOW = 30;
@@ -142,10 +142,10 @@ async function checkPhones(request, response) {
     return;
   }
 
-  if (body.phones.length > MAX_PHONES_PER_REQUEST) {
+  if (body.phones.length > MAX_NUMBERS_PER_CONSULTATION) {
     sendJson(response, 413, {
-      code: "batch_too_large",
-      error: `Consulte no máximo ${MAX_PHONES_PER_REQUEST} números por lote.`,
+      code: "consultation_too_large",
+      error: `Consulte no máximo ${MAX_NUMBERS_PER_CONSULTATION.toLocaleString("pt-PT")} números por consulta.`,
     });
     return;
   }
@@ -270,7 +270,7 @@ const server = http.createServer((request, response) => {
     sendJson(response, 200, {
       provider: "Whapi.Cloud",
       tokenConfigured: Boolean(process.env.WHAPI_TOKEN),
-      maxPhonesPerRequest: MAX_PHONES_PER_REQUEST,
+      maxNumbersPerConsultation: MAX_NUMBERS_PER_CONSULTATION,
     });
     return;
   }

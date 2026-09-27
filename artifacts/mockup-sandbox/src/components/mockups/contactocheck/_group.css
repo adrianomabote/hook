@@ -239,13 +239,6 @@ h1 span {
   height: 17px;
 }
 
-.tab-count {
-  margin-left: 1px;
-  color: #9ca7a1;
-  font-size: 10px;
-  font-weight: 500;
-}
-
 .mode-panel {
   max-width: 1040px;
   margin: 0 auto;
@@ -1319,10 +1312,6 @@ td:first-child {
   .mode-tab {
     gap: 6px;
     font-size: 11px;
-  }
-
-  .tab-count {
-    display: none;
   }
 
   .mode-panel {

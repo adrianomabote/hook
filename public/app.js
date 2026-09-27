@@ -1,4 +1,3 @@
-const API_BATCH_SIZE = 100;
 const MAX_UNIQUE_PER_RUN = 1500;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_PREVIEW_ROWS = 12;
@@ -342,7 +341,7 @@ function updateBatchButton() {
   } else if (!hasData) {
     elements.batchButtonHint.textContent = "Importe CSV, TXT ou Excel, ou cole uma lista de números.";
   } else {
-    elements.batchButtonHint.textContent = `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números por consulta, em chamadas de até ${API_BATCH_SIZE.toLocaleString("pt-PT")}; sem envio de mensagens.`;
+    elements.batchButtonHint.textContent = `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos por consulta; sem envio de mensagens.`;
   }
 }
 
@@ -627,31 +626,21 @@ async function runBatchCheck() {
 
   const resultByPhone = new Map();
   let completed = 0;
-  const batches = [];
-  for (let index = 0; index < uniquePhones.length; index += API_BATCH_SIZE) {
-    batches.push(uniquePhones.slice(index, index + API_BATCH_SIZE));
-  }
 
   renderProgress(0, uniquePhones.length, "A preparar a consulta…");
 
   try {
-    for (const [batchIndex, batch] of batches.entries()) {
-      renderProgress(completed, uniquePhones.length, `A consultar lote ${batchIndex + 1} de ${batches.length}…`);
-      const results = await requestCheck(batch);
-      results.forEach((result) => resultByPhone.set(result.phone, result.status));
-      completed += batch.length;
+    renderProgress(0, uniquePhones.length, "A consultar a lista no serviço…");
+    const results = await requestCheck(uniquePhones);
+    results.forEach((result) => resultByPhone.set(result.phone, result.status));
+    completed = uniquePhones.length;
 
-      state.results = records.map((record) => ({
-        ...record,
-        status: record.phone ? (resultByPhone.get(record.phone) || "unknown") : "invalid_format",
-      }));
-      renderBatchResults();
-      renderProgress(completed, uniquePhones.length, `${completed.toLocaleString("pt-PT")} de ${uniquePhones.length.toLocaleString("pt-PT")} números consultados`);
-
-      if (completed < uniquePhones.length) {
-        await new Promise((resolve) => setTimeout(resolve, 350));
-      }
-    }
+    state.results = records.map((record) => ({
+      ...record,
+      status: record.phone ? (resultByPhone.get(record.phone) || "unknown") : "invalid_format",
+    }));
+    renderBatchResults();
+    renderProgress(completed, uniquePhones.length, `${completed.toLocaleString("pt-PT")} de ${uniquePhones.length.toLocaleString("pt-PT")} números consultados`);
     showBatchAlert("Consulta concluída. Pode exportar os números com e sem WhatsApp em ficheiros separados.");
   } catch (error) {
     state.results = records.map((record) => ({
@@ -659,7 +648,7 @@ async function runBatchCheck() {
       status: record.phone ? (resultByPhone.get(record.phone) || "unknown") : "invalid_format",
     }));
     renderBatchResults();
-    showBatchAlert(`${error.message} Os resultados já recebidos continuam disponíveis para exportação.`, true);
+    showBatchAlert(`${error.message} Os resultados disponíveis continuam exportáveis.`, true);
   } finally {
     state.checking = false;
     renderBatchResults();

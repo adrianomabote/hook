@@ -192,12 +192,7 @@ export function Professional() {
               <p className="cc-aside-copy">Escolha como preparar os números. A consulta real é feita pelo fornecedor conectado.</p>
               <div className="cc-aside-divider" />
               <div className="cc-capacity">
-                <span className="cc-capacity-label">Por chamada do fornecedor</span>
-                <span className="cc-capacity-value">100 números</span>
-                <div className="cc-capacity-meter"><span /></div>
-              </div>
-              <div className="cc-capacity">
-                <span className="cc-capacity-label">Por consulta</span>
+                <span className="cc-capacity-label">Máximo por consulta</span>
                 <span className="cc-capacity-value">1.500 únicos</span>
               </div>
               <div className="cc-aside-foot"><BadgeCheck /> Duplicados são considerados uma única vez na consulta.</div>
@@ -216,7 +211,7 @@ export function Professional() {
                   <Search /> Um número
                 </button>
                 <button className={`cc-mode-tab ${mode === "batch" ? "active" : ""}`} type="button" role="tab" aria-selected={mode === "batch"} onClick={() => setMode("batch")}>
-                  <FileText /> Lista em lote <small>até 100 por chamada</small>
+                  <FileText /> Lista em lote
                 </button>
               </div>
 

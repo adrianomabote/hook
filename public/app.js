@@ -313,7 +313,7 @@ function updateBatchButton() {
   if (!state.tokenConfigured) {
     elements.batchButtonHint.textContent = "Adicione o Secret WHAPI_TOKEN para ativar.";
   } else if (!hasData) {
-    elements.batchButtonHint.textContent = "Importe um CSV ou cole uma lista de números.";
+    elements.batchButtonHint.textContent = "Importe CSV, TXT ou Excel, ou cole uma lista de números.";
   } else {
     elements.batchButtonHint.textContent = `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos por consulta; sem envio de mensagens.`;
   }

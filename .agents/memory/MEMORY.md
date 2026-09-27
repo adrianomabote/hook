@@ -1,0 +1,1 @@
+- [Silent WhatsApp verification](whatsapp-verification-provider.md) — preserve the no-message flow; the official Cloud API does not document a general silent lookup.

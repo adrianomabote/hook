@@ -1,4 +1,4 @@
-import{j as n}from"./index-D9T-0DrC.js";const e=`<!doctype html>
+import{j as n}from"./index-BC4OTJ86.js";const e=`<!doctype html>
 <html lang="pt">
   <head>
     <meta charset="utf-8">
@@ -31,15 +31,6 @@ import{j as n}from"./index-D9T-0DrC.js";const e=`<!doctype html>
           <h1>Saiba quem está no <span>WhatsApp.</span></h1>
           <p class="hero-description">Consulte um número ou uma lista inteira. Separe os resultados sem enviar mensagens aos contactos.</p>
         </div>
-        <div class="hero-stamp" aria-label="Consulta individual e em lote">
-          <div class="stamp-icon" aria-hidden="true">
-            <svg viewBox="0 0 32 32" fill="none">
-              <path d="M7.5 5.5h17a2 2 0 0 1 2 2v17a2 2 0 0 1-2 2h-17a2 2 0 0 1-2-2v-17a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.7"/>
-              <path d="m10 12 2 2 3.5-4M17.5 12h5M10 20l2 2 3.5-4M17.5 20h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </div>
-          <div><strong>Dois modos</strong><span>Individual e lista em lote</span></div>
-        </div>
       </section>
 
       <div class="workspace-grid">
@@ -59,7 +50,6 @@ import{j as n}from"./index-D9T-0DrC.js";const e=`<!doctype html>
             <button class="mode-tab" id="batchTab" type="button" role="tab" aria-selected="false" aria-controls="batchPanel">
               <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 3.5h7l3 3v10a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 4 16.5v-11A2 2 0 0 1 5 3.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 3.8v3h3M7 10h6M7 13h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
               Lista em lote
-              <span class="tab-count">até 100 por chamada</span>
             </button>
           </div>
 
@@ -377,48 +367,6 @@ h1 span {
   line-height: 1.7;
 }
 
-.hero-stamp {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 13px 16px;
-  margin: 0;
-  border: 1px solid #dfebe4;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.stamp-icon {
-  width: 37px;
-  height: 37px;
-  display: grid;
-  place-items: center;
-  color: var(--green);
-  border-radius: 11px;
-  background: var(--green-pale);
-}
-
-.stamp-icon svg {
-  width: 24px;
-  height: 24px;
-}
-
-.hero-stamp strong,
-.hero-stamp span {
-  display: block;
-}
-
-.hero-stamp strong {
-  margin-bottom: 3px;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.hero-stamp div:last-child > span {
-  color: #7b8982;
-  font-size: 11px;
-}
-
 .workspace-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -494,13 +442,6 @@ h1 span {
 .mode-tab svg {
   width: 17px;
   height: 17px;
-}
-
-.tab-count {
-  margin-left: 1px;
-  color: #9ca7a1;
-  font-size: 10px;
-  font-weight: 500;
 }
 
 .mode-panel {
@@ -1576,10 +1517,6 @@ td:first-child {
   .mode-tab {
     gap: 6px;
     font-size: 11px;
-  }
-
-  .tab-count {
-    display: none;
   }
 
   .mode-panel {

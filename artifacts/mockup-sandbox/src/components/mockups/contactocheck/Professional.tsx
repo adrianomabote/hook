@@ -301,7 +301,7 @@ export function Professional() {
                       }
                       previewAction("batch");
                     }}>Pré-visualizar resultados <ArrowRight /></button>
-                    <p className="cc-hint">Até 1.500 números únicos por consulta, em chamadas de até 100.</p>
+                    <p className="cc-hint">Até 1.500 números únicos por consulta, numa única chamada ao serviço.</p>
                   </div>
                 </section>
               )}

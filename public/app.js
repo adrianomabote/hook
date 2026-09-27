@@ -786,7 +786,10 @@ function renderBatchResults() {
   elements.copyValidButton.disabled = !hasValidContacts;
   elements.exportFormat.disabled = !hasValidContacts;
   elements.exportInvalidButton.disabled = counts.invalid === 0 || state.checking;
-  elements.exportAllButton.disabled = rows.length === 0 || state.checking;
+  elements.exportAllButton.disabled = rows.length === 0 || state.checking || counts.unknown > 0;
+  elements.exportAllButton.title = counts.unknown > 0
+    ? "Conclua a verificação antes de exportar resultados não confirmados."
+    : "";
 
   const filtered = state.filter === "all"
     ? rows

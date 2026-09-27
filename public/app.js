@@ -274,7 +274,6 @@ function createImport(rows, fileName, options = {}) {
   };
 
   state.imported = importState;
-  state.filteredWhatsAppFile = null;
   state.results = [];
   elements.hasHeader.checked = hasHeader;
   elements.fileName.textContent = fileName;
@@ -351,7 +350,7 @@ function updateBatchButton() {
   } else if (!hasData) {
     elements.batchButtonHint.textContent = "Importe CSV, TXT ou Excel, ou cole uma lista de números.";
   } else {
-    elements.batchButtonHint.textContent = `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos por consulta; sem envio de mensagens.`;
+    elements.batchButtonHint.textContent = `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos; o serviço consulta em blocos de ${PROVIDER_BATCH_SIZE.toLocaleString("pt-PT")}, sem enviar mensagens.`;
   }
 }
 
@@ -397,7 +396,7 @@ function showSingleResult(status, title, detail) {
   elements.singleResult.hidden = false;
 }
 
-async function requestCheck(phones) {
+async function requestCheck(phones, onProgress) {
   const response = await fetch("/api/check", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -410,8 +409,57 @@ async function requestCheck(phones) {
     throw new Error("O servidor devolveu uma resposta inválida.");
   }
   if (!response.ok) throw new Error(data.error || "Não foi possível consultar os números.");
-  if (!Array.isArray(data.results)) throw new Error("A resposta não contém resultados.");
-  return data.results;
+  if (Array.isArray(data.results)) return data.results;
+  if (!data.jobId) throw new Error("A resposta não contém resultados.");
+
+  let completed = 0;
+  let pollingErrors = 0;
+  onProgress?.(completed, data.total || phones.length);
+
+  while (true) {
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    let statusResponse;
+    try {
+      statusResponse = await fetch(`/api/check/${encodeURIComponent(data.jobId)}`, {
+        cache: "no-store",
+      });
+    } catch {
+      pollingErrors += 1;
+      if (pollingErrors >= 10) {
+        throw new Error("A ligação foi interrompida. Consulte novamente o estado da verificação.");
+      }
+      continue;
+    }
+
+    let statusData;
+    try {
+      statusData = await statusResponse.json();
+    } catch {
+      throw new Error("O servidor devolveu o estado da verificação num formato inválido.");
+    }
+    if (!statusResponse.ok) {
+      throw new Error(statusData.error || "Não foi possível obter o estado da verificação.");
+    }
+
+    pollingErrors = 0;
+    completed = Number(statusData.completed) || 0;
+    onProgress?.(completed, Number(statusData.total) || phones.length);
+
+    if (statusData.status === "completed") {
+      if (!Array.isArray(statusData.results)) {
+        throw new Error("A verificação terminou sem devolver os resultados.");
+      }
+      return statusData.results;
+    }
+    if (statusData.status === "failed") {
+      const error = new Error(statusData.error || "A verificação foi interrompida pelo serviço.");
+      error.results = Array.isArray(statusData.results) ? statusData.results : [];
+      throw error;
+    }
+    if (!["queued", "running"].includes(statusData.status)) {
+      throw new Error("O estado da verificação não é reconhecido.");
+    }
+  }
 }
 
 function statusTitle(status) {
@@ -584,7 +632,6 @@ elements.loadPasteButton.addEventListener("click", () => {
 
 elements.removeFileButton.addEventListener("click", () => {
   state.imported = null;
-  state.filteredWhatsAppFile = null;
   state.results = [];
   elements.fileInput.value = "";
   elements.fileSummary.hidden = true;
@@ -616,14 +663,13 @@ async function runBatchCheck() {
   }
   if (uniquePhones.length > MAX_UNIQUE_PER_RUN) {
     showBatchAlert(
-      `Este ficheiro tem ${uniquePhones.length.toLocaleString("pt-PT")} números únicos. O limite desta consulta é ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")}; divida a lista para evitar bloqueios do serviço.`,
+      `Esta lista tem ${uniquePhones.length.toLocaleString("pt-PT")} números únicos. O limite por verificação é ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")}.`,
       true,
     );
     return;
   }
 
   state.checking = true;
-  state.filteredWhatsAppFile = null;
   state.results = records;
   elements.resultsSection.hidden = false;
   elements.batchAlert.hidden = true;
@@ -633,9 +679,7 @@ async function runBatchCheck() {
   if (uniquePhones.length === 0) {
     renderBatchResults();
     elements.progressWrap.hidden = true;
-    elements.batchAlert.hidden = false;
-    elements.batchAlert.classList.add("is-error");
-    elements.batchAlert.textContent = "Não encontrei números com um formato válido para consultar.";
+    showBatchAlert("Não encontrei números com um formato válido para consultar.", true);
     state.checking = false;
     updateBatchButton();
     return;
@@ -647,8 +691,15 @@ async function runBatchCheck() {
   renderProgress(0, uniquePhones.length, "A preparar a consulta…");
 
   try {
-    renderProgress(0, uniquePhones.length, "A consultar a lista no serviço…");
-    const results = await requestCheck(uniquePhones);
+    renderProgress(0, uniquePhones.length, "A iniciar a verificação…");
+    const results = await requestCheck(uniquePhones, (done, total) => {
+      completed = done;
+      renderProgress(
+        done,
+        total,
+        `${done.toLocaleString("pt-PT")} de ${total.toLocaleString("pt-PT")} números verificados…`,
+      );
+    });
     results.forEach((result) => resultByPhone.set(result.phone, result.status));
     completed = uniquePhones.length;
 
@@ -657,30 +708,26 @@ async function runBatchCheck() {
       status: record.phone ? (resultByPhone.get(record.phone) || "unknown") : "invalid_format",
     }));
     renderBatchResults();
-    let filePreparationError = null;
-    try {
-      await prepareWhatsAppFile();
-    } catch (error) {
-      state.filteredWhatsAppFile = null;
-      filePreparationError = error;
-    }
-    renderBatchResults();
     renderProgress(completed, uniquePhones.length, `${completed.toLocaleString("pt-PT")} de ${uniquePhones.length.toLocaleString("pt-PT")} números consultados`);
-    if (state.filteredWhatsAppFile) {
-      const validCount = state.results.filter((record) => record.status === "valid").length;
-      showBatchAlert(`Consulta concluída. O ficheiro com ${validCount.toLocaleString("pt-PT")} contactos com WhatsApp está pronto para descarregar.`);
-    } else if (filePreparationError) {
-      showBatchAlert(`A consulta terminou, mas não foi possível preparar o ficheiro filtrado: ${filePreparationError.message}`, true);
+    const validCount = state.results.filter((record) => record.status === "valid").length;
+    if (validCount) {
+      showBatchAlert(`Consulta concluída: ${validCount.toLocaleString("pt-PT")} contactos confirmados. Pode copiá-los ou escolher um formato para descarregar.`);
     } else {
       showBatchAlert("Consulta concluída. Não foram encontrados contactos com WhatsApp para exportar.");
     }
   } catch (error) {
+    (Array.isArray(error.results) ? error.results : []).forEach((result) => {
+      resultByPhone.set(result.phone, result.status);
+    });
     state.results = records.map((record) => ({
       ...record,
       status: record.phone ? (resultByPhone.get(record.phone) || "unknown") : "invalid_format",
     }));
     renderBatchResults();
-    showBatchAlert(`${error.message} Os resultados disponíveis continuam exportáveis.`, true);
+    const progressMessage = completed
+      ? `${completed.toLocaleString("pt-PT")} de ${uniquePhones.length.toLocaleString("pt-PT")} números foram verificados. `
+      : "";
+    showBatchAlert(`${progressMessage}${error.message} Só os contactos confirmados podem ser copiados ou descarregados.`, true);
   } finally {
     state.checking = false;
     renderBatchResults();

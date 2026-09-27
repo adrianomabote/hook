@@ -1232,11 +1232,6 @@ td:first-child {
   color: var(--green);
 }
 
-.page-footer > span:last-child {
-  text-align: center;
-  line-height: 1.5;
-}
-
 .sr-only {
   position: absolute;
   width: 1px;

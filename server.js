@@ -5,6 +5,11 @@ const path = require("node:path");
 const PORT = Number(process.env.PORT || 5000);
 const HOST = "0.0.0.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
+const XLSX_BUNDLE_PATH = path.join(
+  path.dirname(require.resolve("xlsx")),
+  "dist",
+  "xlsx.full.min.js",
+);
 const WHAPI_URL = "https://gate.whapi.cloud/contacts";
 const MAX_PHONES_PER_REQUEST = 50;
 const MAX_BODY_BYTES = 32 * 1024;
@@ -231,8 +236,11 @@ function serveStatic(request, response, pathname) {
     return;
   }
 
-  const filePath = path.resolve(PUBLIC_DIR, `.${decodedRoute}`);
-  if (!filePath.startsWith(`${PUBLIC_DIR}${path.sep}`)) {
+  const isXlsxBundle = decodedRoute === "/vendor/xlsx.full.min.js";
+  const filePath = isXlsxBundle
+    ? XLSX_BUNDLE_PATH
+    : path.resolve(PUBLIC_DIR, `.${decodedRoute}`);
+  if (!isXlsxBundle && !filePath.startsWith(`${PUBLIC_DIR}${path.sep}`)) {
     sendJson(response, 403, { error: "Acesso negado." });
     return;
   }

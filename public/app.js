@@ -18,6 +18,7 @@ const elements = {
   dropzone: document.querySelector("#dropzone"),
   chooseFileButton: document.querySelector("#chooseFileButton"),
   fileSummary: document.querySelector("#fileSummary"),
+  fileIcon: document.querySelector("#fileIcon"),
   fileName: document.querySelector("#fileName"),
   fileCount: document.querySelector("#fileCount"),
   removeFileButton: document.querySelector("#removeFileButton"),
@@ -149,6 +150,27 @@ function parseDelimitedText(text) {
   return rows;
 }
 
+function parseSpreadsheet(buffer) {
+  if (!window.XLSX) {
+    throw new Error("O leitor de ficheiros Excel não está disponível.");
+  }
+
+  const workbook = window.XLSX.read(buffer, { type: "array" });
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) {
+    throw new Error("O ficheiro Excel não contém folhas.");
+  }
+
+  const rows = window.XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], {
+    header: 1,
+    defval: "",
+    raw: false,
+    blankrows: false,
+  });
+
+  return rows.map((row) => row.map((cell) => String(cell ?? "")));
+}
+
 function normalizedHeader(value) {
   return String(value || "")
     .normalize("NFD")
@@ -220,6 +242,9 @@ function createImport(rows, fileName) {
   state.results = [];
   elements.hasHeader.checked = hasHeader;
   elements.fileName.textContent = fileName;
+  elements.fileIcon.textContent = fileName === "Lista colada"
+    ? "TXT"
+    : (fileName.split(".").pop() || "FILE").slice(0, 4).toUpperCase();
   elements.fileSummary.hidden = false;
   elements.importSettings.hidden = false;
   elements.importPreview.hidden = false;
@@ -471,11 +496,19 @@ async function loadFile(file) {
     return;
   }
 
+  const extension = file.name.split(".").pop().toLowerCase();
+  if (!["csv", "txt", "xlsx", "xls"].includes(extension)) {
+    showBatchAlert("Formato não suportado. Use CSV, TXT, XLSX ou XLS.", true);
+    return;
+  }
+
   try {
-    const rows = parseDelimitedText(await file.text());
+    const rows = ["xlsx", "xls"].includes(extension)
+      ? parseSpreadsheet(await file.arrayBuffer())
+      : parseDelimitedText(await file.text());
     importRows(rows, file.name);
   } catch {
-    showBatchAlert("Não consegui ler o ficheiro. Use um CSV ou TXT em texto simples.", true);
+    showBatchAlert("Não consegui ler o ficheiro. Confirme se é um CSV, TXT ou ficheiro Excel válido.", true);
   }
 }
 

@@ -246,7 +246,7 @@ function serveStatic(request, response, pathname) {
     const contentType = MIME_TYPES[path.extname(filePath)] || "application/octet-stream";
     response.writeHead(200, {
       "Cache-Control": "no-cache",
-      "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'",
+      "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'",
       "Content-Type": contentType,
       "Referrer-Policy": "strict-origin-when-cross-origin",
       "X-Content-Type-Options": "nosniff",

@@ -1,0 +1,10 @@
+{
+  "name": "whatsapp-number-checker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Verificador de números de WhatsApp via Whapi.Cloud",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  }
+}

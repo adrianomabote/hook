@@ -162,48 +162,6 @@ h1 span {
   line-height: 1.7;
 }
 
-.hero-stamp {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 13px 16px;
-  margin: 0;
-  border: 1px solid #dfebe4;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.stamp-icon {
-  width: 37px;
-  height: 37px;
-  display: grid;
-  place-items: center;
-  color: var(--green);
-  border-radius: 11px;
-  background: var(--green-pale);
-}
-
-.stamp-icon svg {
-  width: 24px;
-  height: 24px;
-}
-
-.hero-stamp strong,
-.hero-stamp span {
-  display: block;
-}
-
-.hero-stamp strong {
-  margin-bottom: 3px;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.hero-stamp div:last-child > span {
-  color: #7b8982;
-  font-size: 11px;
-}
-
 .workspace-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

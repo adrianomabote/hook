@@ -99,7 +99,7 @@ function providerErrorMessage(statusCode) {
     return "O token foi recusado ou o canal WhatsApp ainda não está autorizado.";
   }
   if (statusCode === 402) {
-    return "O limite de consultas do plano atual foi atingido.";
+    return "O Whapi.Cloud recusou a consulta porque a quota do plano foi atingida. Este limite é do serviço externo; os números sem resposta continuam não confirmados. Renove a quota ou aguarde a reposição do limite no Whapi.Cloud.";
   }
   if (statusCode === 429) {
     return "O serviço limitou temporariamente as consultas. Aguarde e tente novamente.";

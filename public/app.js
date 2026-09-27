@@ -729,7 +729,10 @@ async function runBatchCheck() {
     const progressMessage = completed
       ? `${completed.toLocaleString("pt-PT")} de ${uniquePhones.length.toLocaleString("pt-PT")} números foram verificados. `
       : "";
-    showBatchAlert(`${progressMessage}${error.message} Só os contactos confirmados podem ser copiados ou descarregados.`, true);
+    showBatchAlert(
+      `${progressMessage}${error.message} Os números sem resposta continuam como não confirmados; “Baixar contactos” e “Copiar contactos” só incluem resultados confirmados.`,
+      true,
+    );
   } finally {
     state.checking = false;
     renderBatchResults();

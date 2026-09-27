@@ -367,6 +367,21 @@ h1 span {
   background: #f5faf7;
 }
 
+.button-outline:disabled,
+.button-quiet:disabled {
+  color: #74837b;
+  border-color: #dce5e0;
+  background: #f1f5f2;
+  box-shadow: none;
+}
+
+.select-control:disabled {
+  color: #74837b;
+  border-color: #dce5e0;
+  background-color: #f1f5f2;
+  cursor: not-allowed;
+}
+
 .field-hint {
   margin: 7px 0 0;
   color: #88958e;

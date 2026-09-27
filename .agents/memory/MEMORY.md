@@ -1,2 +1,4 @@
 - [Silent WhatsApp verification](whatsapp-verification-provider.md) — preserve the no-message flow; the official Cloud API does not document a general silent lookup.
 - [Mockup artifact dependencies](mockup-sandbox-artifact-setup.md) — a generated mockup artifact may need its own dependency install before its preview workflow can run.
+- [Verified contact exports](verified-contact-export-scope.md) — include only provider-confirmed rows in the file offered as WhatsApp contacts.
+- [Patch application results](patch-application-results.md) — multi-file patches can partially apply; inspect each result before retrying.

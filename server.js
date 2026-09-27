@@ -1,6 +1,7 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const { randomUUID } = require("node:crypto");
 
 const PORT = Number(process.env.PORT || 5000);
 const HOST = "0.0.0.0";
@@ -11,11 +12,15 @@ const XLSX_BUNDLE_PATH = path.join(
   "xlsx.full.min.js",
 );
 const WHAPI_URL = "https://gate.whapi.cloud/contacts";
-const MAX_NUMBERS_PER_CONSULTATION = 1500;
-const MAX_BODY_BYTES = 32 * 1024;
+const PROVIDER_BATCH_SIZE = 1500;
+const MAX_NUMBERS_PER_CONSULTATION = 250_000;
+const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const RATE_WINDOW_MS = 60 * 1000;
 const MAX_REQUESTS_PER_WINDOW = 30;
+const MAX_ACTIVE_JOBS_PER_ADDRESS = 1;
+const JOB_RETENTION_MS = 30 * 60 * 1000;
 const requestCounts = new Map();
+const checkJobs = new Map();
 
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
@@ -105,6 +110,118 @@ function providerErrorMessage(statusCode) {
   return `O serviço não concluiu a consulta (HTTP ${statusCode}).`;
 }
 
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function requestProviderContacts(phones) {
+  const maxAttempts = 3;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    let providerResponse;
+
+    try {
+      providerResponse = await fetch(WHAPI_URL, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${process.env.WHAPI_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ contacts: phones }),
+        signal: AbortSignal.timeout(20_000),
+      });
+    } catch (error) {
+      if (attempt + 1 === maxAttempts) {
+        throw new Error(
+          error.name === "TimeoutError" || error.name === "AbortError"
+            ? "A consulta demorou demais. Tente novamente."
+            : "Não foi possível conectar ao serviço. Tente novamente mais tarde.",
+        );
+      }
+      await wait(1000 * (attempt + 1));
+      continue;
+    }
+
+    if (providerResponse.status === 429 && attempt + 1 < maxAttempts) {
+      const retryAfter = Number(providerResponse.headers?.get?.("Retry-After"));
+      const delay = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(retryAfter, 60) * 1000
+        : 1000 * (attempt + 1);
+      await wait(delay);
+      continue;
+    }
+
+    if (!providerResponse.ok) {
+      const error = new Error(providerErrorMessage(providerResponse.status));
+      error.providerStatus = providerResponse.status;
+      throw error;
+    }
+
+    let data;
+    try {
+      data = await providerResponse.json();
+    } catch {
+      throw new Error("O serviço devolveu uma resposta que não pôde ser interpretada.");
+    }
+
+    if (!Array.isArray(data.contacts)) {
+      throw new Error("A resposta do serviço não contém a lista de resultados esperada.");
+    }
+
+    const resultByNumber = new Map(
+      data.contacts.map((contact) => [
+        digitsOnly(contact.input),
+        contact.status === "valid" || contact.status === "invalid"
+          ? contact.status
+          : "unknown",
+      ]),
+    );
+
+    return phones.map((phone) => ({
+      phone,
+      status: resultByNumber.get(digitsOnly(phone)) || "unknown",
+    }));
+  }
+
+  throw new Error("O serviço não concluiu a consulta. Tente novamente.");
+}
+
+function removeExpiredCheckJobs() {
+  const cutoff = Date.now() - JOB_RETENTION_MS;
+  for (const [jobId, job] of checkJobs) {
+    if (job.finishedAt && job.finishedAt < cutoff) checkJobs.delete(jobId);
+  }
+}
+
+async function processCheckJob(job) {
+  job.status = "running";
+  const resultByNumber = new Map();
+
+  for (let offset = 0; offset < job.phones.length; offset += PROVIDER_BATCH_SIZE) {
+    const batch = job.phones.slice(offset, offset + PROVIDER_BATCH_SIZE);
+    try {
+      const results = await requestProviderContacts(batch);
+      results.forEach((result) => {
+        resultByNumber.set(digitsOnly(result.phone), result.status);
+      });
+      job.completed += batch.length;
+    } catch (error) {
+      job.status = "failed";
+      job.error = error.message;
+      break;
+    }
+  }
+
+  job.results = job.phones.map((phone) => ({
+    phone,
+    status: resultByNumber.get(digitsOnly(phone)) || "unknown",
+  }));
+  job.phones = null;
+  job.finishedAt = Date.now();
+  if (job.status !== "failed") job.status = "completed";
+}
+
 async function checkPhones(request, response) {
   const token = process.env.WHAPI_TOKEN;
   if (!token) {
@@ -142,16 +259,8 @@ async function checkPhones(request, response) {
     return;
   }
 
-  if (body.phones.length > MAX_NUMBERS_PER_CONSULTATION) {
-    sendJson(response, 413, {
-      code: "consultation_too_large",
-      error: `Consulte no máximo ${MAX_NUMBERS_PER_CONSULTATION.toLocaleString("pt-PT")} números por consulta.`,
-    });
-    return;
-  }
-
-  const phones = body.phones.map(normalizePhone);
-  if (phones.some((phone) => !phone)) {
+  const normalizedPhones = body.phones.map(normalizePhone);
+  if (normalizedPhones.some((phone) => !phone)) {
     sendJson(response, 400, {
       code: "invalid_phone",
       error: "Todos os números devem estar no formato internacional, por exemplo +351912345678.",
@@ -159,70 +268,83 @@ async function checkPhones(request, response) {
     return;
   }
 
-  try {
-    const providerResponse = await fetch(WHAPI_URL, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ contacts: phones }),
-      signal: AbortSignal.timeout(20_000),
+  const phones = [...new Set(normalizedPhones)];
+  if (phones.length > MAX_NUMBERS_PER_CONSULTATION) {
+    sendJson(response, 413, {
+      code: "consultation_too_large",
+      error: `Consulte no máximo ${MAX_NUMBERS_PER_CONSULTATION.toLocaleString("pt-PT")} números únicos por verificação.`,
     });
+    return;
+  }
 
-    if (!providerResponse.ok) {
-      sendJson(response, 502, {
-        code: "provider_error",
-        providerStatus: providerResponse.status,
-        error: providerErrorMessage(providerResponse.status),
+  if (phones.length > PROVIDER_BATCH_SIZE) {
+    removeExpiredCheckJobs();
+    const address = clientAddress(request);
+    const hasActiveJob = [...checkJobs.values()].some((job) => (
+      job.address === address && ["queued", "running"].includes(job.status)
+    ));
+    if (hasActiveJob) {
+      sendJson(response, 429, {
+        code: "check_already_running",
+        error: "Já existe uma verificação em curso. Aguarde que termine antes de iniciar outra.",
       });
       return;
     }
 
-    let data;
-    try {
-      data = await providerResponse.json();
-    } catch {
-      sendJson(response, 502, {
-        code: "invalid_provider_response",
-      error: "O serviço devolveu uma resposta que não pôde ser interpretada.",
-      });
-      return;
-    }
+    const job = {
+      id: randomUUID(),
+      address,
+      phones,
+      total: phones.length,
+      completed: 0,
+      status: "queued",
+      results: null,
+      error: null,
+      finishedAt: null,
+    };
+    checkJobs.set(job.id, job);
+    setImmediate(() => {
+      void processCheckJob(job);
+    });
+    sendJson(response, 202, {
+      jobId: job.id,
+      status: job.status,
+      total: job.total,
+      completed: job.completed,
+    });
+    return;
+  }
 
-    if (!Array.isArray(data.contacts)) {
-      sendJson(response, 502, {
-        code: "invalid_provider_response",
-      error: "A resposta do serviço não contém a lista de resultados esperada.",
-      });
-      return;
-    }
-
-    const resultByNumber = new Map(
-      data.contacts.map((contact) => [
-        digitsOnly(contact.input),
-        contact.status === "valid" || contact.status === "invalid"
-          ? contact.status
-          : "unknown",
-      ]),
-    );
-
-    const results = phones.map((phone) => ({
-      phone,
-      status: resultByNumber.get(digitsOnly(phone)) || "unknown",
-    }));
-
+  try {
+    const results = await requestProviderContacts(phones);
     sendJson(response, 200, { results });
   } catch (error) {
-    const timedOut = error.name === "TimeoutError" || error.name === "AbortError";
     sendJson(response, 502, {
-      code: timedOut ? "provider_timeout" : "provider_unavailable",
-      error: timedOut
-        ? "A consulta demorou demais. Tente novamente."
-        : "Não foi possível conectar ao serviço. Tente novamente mais tarde.",
+      code: error.providerStatus ? "provider_error" : "provider_unavailable",
+      providerStatus: error.providerStatus,
+      error: error.message,
     });
   }
+}
+
+function getCheckJob(request, response, jobId) {
+  const job = checkJobs.get(jobId);
+  if (!job || job.address !== clientAddress(request)) {
+    sendJson(response, 404, {
+      code: "check_not_found",
+      error: "A verificação não foi encontrada ou já expirou.",
+    });
+    return;
+  }
+
+  sendJson(response, 200, {
+    jobId: job.id,
+    status: job.status,
+    total: job.total,
+    completed: job.completed,
+    results: job.results,
+    error: job.error,
+  });
 }
 
 function serveStatic(request, response, pathname) {
@@ -271,7 +393,14 @@ const server = http.createServer((request, response) => {
       provider: "Whapi.Cloud",
       tokenConfigured: Boolean(process.env.WHAPI_TOKEN),
       maxNumbersPerConsultation: MAX_NUMBERS_PER_CONSULTATION,
+      providerBatchSize: PROVIDER_BATCH_SIZE,
     });
+    return;
+  }
+
+  const checkJobMatch = url.pathname.match(/^\/api\/check\/([a-f0-9-]{36})$/i);
+  if (checkJobMatch && request.method === "GET") {
+    getCheckJob(request, response, checkJobMatch[1]);
     return;
   }
 

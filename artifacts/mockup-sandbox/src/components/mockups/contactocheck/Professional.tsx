@@ -318,7 +318,7 @@ export function Professional() {
                   <p className="cc-results-copy">Estrutura de resultados e opções de exportação — sem consultar números reais.</p>
                 </div>
                 <div className="cc-result-actions">
-                  <button type="button" onClick={() => exportPreview("Baixar só os contactos com WhatsApp")}><Download /> Só com WhatsApp</button>
+                  <button type="button" onClick={() => exportPreview("Baixar só os contactos com WhatsApp")}><Download /> Baixar só com WhatsApp</button>
                   <button type="button" onClick={() => exportPreview("Exportar sem WhatsApp")}><Download /> Sem WhatsApp</button>
                   <button type="button" onClick={() => exportPreview("Exportar tudo")}><Download /> Exportar tudo</button>
                 </div>

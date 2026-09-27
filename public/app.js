@@ -195,7 +195,10 @@ async function parseSpreadsheet(buffer) {
     blankrows: false,
   });
 
-  return rows.map((row) => row.map((cell) => String(cell ?? "")));
+  return {
+    rows: rows.map((row) => row.map((cell) => String(cell ?? ""))),
+    sheetName: firstSheetName,
+  };
 }
 
 function normalizedHeader(value) {

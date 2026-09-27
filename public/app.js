@@ -292,7 +292,7 @@ function updateBatchButton() {
   } else if (!hasData) {
     elements.batchButtonHint.textContent = "Importe um CSV ou cole uma lista de números.";
   } else {
-    elements.batchButtonHint.textContent = "Cada número será consultado sem enviar mensagens.";
+    elements.batchButtonHint.textContent = `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos por consulta; sem envio de mensagens.`;
   }
 }
 

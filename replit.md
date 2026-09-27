@@ -13,6 +13,7 @@
 - No Whapi.Cloud, conecte o número pelo QR Code antes de consultar.
 - O verificador não envia mensagens. A consulta é enviada ao Whapi.Cloud e retorna os estados `valid` ou `invalid`; resultados sem resposta são mostrados como não confirmados.
 - O frontend envia até 50 números por chamada e não armazena arquivos ou resultados no servidor.
+- Cada consulta aceita até 1.500 números únicos; divida ficheiros maiores em várias consultas.
 - Números sem código de país são normalizados usando o país escolhido na interface.
 
 ## Privacidade e limites

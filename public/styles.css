@@ -1577,3 +1577,16 @@ td:first-child {
     text-align: left;
   }
 }
+
+@media (max-width: 420px) {
+  .no-message-pill {
+    max-width: 9px;
+    overflow: hidden;
+    font-size: 0;
+  }
+
+  .connection-status {
+    padding-left: 7px;
+    font-size: 9px;
+  }
+}

@@ -1,4 +1,4 @@
-const API_BATCH_SIZE = 50;
+const API_BATCH_SIZE = 100;
 const MAX_UNIQUE_PER_RUN = 1500;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_PREVIEW_ROWS = 12;
@@ -342,7 +342,7 @@ function updateBatchButton() {
   } else if (!hasData) {
     elements.batchButtonHint.textContent = "Importe CSV, TXT ou Excel, ou cole uma lista de números.";
   } else {
-    elements.batchButtonHint.textContent = `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos por consulta; sem envio de mensagens.`;
+    elements.batchButtonHint.textContent = `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números por consulta, em chamadas de até ${API_BATCH_SIZE.toLocaleString("pt-PT")}; sem envio de mensagens.`;
   }
 }
 

@@ -11,7 +11,7 @@ const XLSX_BUNDLE_PATH = path.join(
   "xlsx.full.min.js",
 );
 const WHAPI_URL = "https://gate.whapi.cloud/contacts";
-const MAX_PHONES_PER_REQUEST = 50;
+const MAX_PHONES_PER_REQUEST = 100;
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_WINDOW_MS = 60 * 1000;
 const MAX_REQUESTS_PER_WINDOW = 30;

@@ -220,11 +220,10 @@ h1 span {
 
 .work-card {
   width: 100%;
-  max-width: 1000px;
+  max-width: 1180px;
   min-height: 425px;
   margin: 0 auto;
   padding: 25px 27px 0;
-  overflow: hidden;
 }
 
 .card-heading {
@@ -290,7 +289,7 @@ h1 span {
 }
 
 .mode-panel {
-  max-width: 860px;
+  max-width: 1040px;
   margin: 0 auto;
   padding: 22px 0 19px;
 }
@@ -1030,7 +1029,7 @@ h1 span {
 }
 
 .results-section {
-  max-width: 1000px;
+  max-width: 1180px;
   margin: 0 auto;
   padding-top: 31px;
 }

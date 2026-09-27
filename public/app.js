@@ -2,6 +2,7 @@ const API_BATCH_SIZE = 50;
 const MAX_UNIQUE_PER_RUN = 1500;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_PREVIEW_ROWS = 12;
+let xlsxLibraryPromise = null;
 
 const elements = {
   singleTab: document.querySelector("#singleTab"),
@@ -150,18 +151,44 @@ function parseDelimitedText(text) {
   return rows;
 }
 
-function parseSpreadsheet(buffer) {
-  if (!window.XLSX) {
+function loadSpreadsheetLibrary() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (xlsxLibraryPromise) return xlsxLibraryPromise;
+
+  xlsxLibraryPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "/vendor/xlsx.full.min.js";
+    script.onload = () => {
+      if (window.XLSX) {
+        resolve(window.XLSX);
+      } else {
+        xlsxLibraryPromise = null;
+        reject(new Error("O leitor de ficheiros Excel não está disponível."));
+      }
+    };
+    script.onerror = () => {
+      xlsxLibraryPromise = null;
+      reject(new Error("Não foi possível carregar o leitor de ficheiros Excel."));
+    };
+    document.head.append(script);
+  });
+
+  return xlsxLibraryPromise;
+}
+
+async function parseSpreadsheet(buffer) {
+  const XLSX = await loadSpreadsheetLibrary();
+  if (!XLSX) {
     throw new Error("O leitor de ficheiros Excel não está disponível.");
   }
 
-  const workbook = window.XLSX.read(buffer, { type: "array" });
+  const workbook = XLSX.read(buffer, { type: "array" });
   const firstSheetName = workbook.SheetNames[0];
   if (!firstSheetName) {
     throw new Error("O ficheiro Excel não contém folhas.");
   }
 
-  const rows = window.XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], {
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], {
     header: 1,
     defval: "",
     raw: false,
@@ -504,7 +531,7 @@ async function loadFile(file) {
 
   try {
     const rows = ["xlsx", "xls"].includes(extension)
-      ? parseSpreadsheet(await file.arrayBuffer())
+      ? await parseSpreadsheet(await file.arrayBuffer())
       : parseDelimitedText(await file.text());
     importRows(rows, file.name);
   } catch {

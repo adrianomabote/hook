@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="pt">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f8f6">
+    <meta name="description" content="Consulte números WhatsApp individualmente ou em lote, sem enviar mensagens.">
+    <title>Verificador WhatsApp — Contacto</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Contacto, início">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M16 3.5a12.1 12.1 0 0 0-10.3 18.4L4 28l6.4-1.7A12.2 12.2 0 1 0 16 3.5Z" fill="currentColor" opacity=".16"/>
+            <path d="M16 5.8a9.8 9.8 0 0 0-8.4 14.9l.4.7-.8 3.1 3.2-.8.7.4A9.8 9.8 0 1 0 16 5.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+            <path d="M12.2 11.2c-.3-.6-.6-.6-.9-.6h-.7c-.3 0-.7.1-1 .5-.4.4-1.2 1.2-1.2 2.8s1.2 3.1 1.4 3.3c.2.2 2.3 3.7 5.7 5 2.8 1.1 3.4.9 4 .8.6-.1 2-.8 2.3-1.6.3-.8.3-1.5.2-1.6-.1-.1-.4-.2-.8-.4l-2.4-1.2c-.3-.1-.6-.2-.8.2l-1 1.3c-.2.3-.5.3-.8.1-.4-.2-1.6-.6-3.1-2-1.1-1-1.8-2.2-2-2.6-.2-.4 0-.6.2-.8.2-.2.4-.5.6-.7.2-.2.3-.4.4-.6.1-.2.1-.4 0-.6l-1.1-2.6Z" fill="currentColor" transform="translate(1.7 1.1) scale(.76)"/>
+          </svg>
+        </span>
+        <span class="brand-word">contacto<span>check</span></span>
+      </a>
+    </header>
+
+    <main class="page-shell">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow-line"></span> VERIFICAÇÃO DE CONTACTOS</p>
+          <h1>Saiba quem está no <span>WhatsApp.</span></h1>
+          <p class="hero-description">Consulte um número ou uma lista inteira. Separe os resultados sem enviar mensagens aos contactos.</p>
+        </div>
+        <div class="hero-stamp" aria-label="Consulta individual e em lote">
+          <div class="stamp-icon" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none">
+              <path d="M7.5 5.5h17a2 2 0 0 1 2 2v17a2 2 0 0 1-2 2h-17a2 2 0 0 1-2-2v-17a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.7"/>
+              <path d="m10 12 2 2 3.5-4M17.5 12h5M10 20l2 2 3.5-4M17.5 20h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div><strong>Dois modos</strong><span>Individual e lista em lote</span></div>
+        </div>
+      </section>
+
+      <div class="workspace-grid">
+        <section class="work-card" aria-labelledby="toolTitle">
+          <div class="card-heading">
+            <div>
+              <p class="section-kicker">O VERIFICADOR</p>
+              <h2 id="toolTitle">Escolha como começar</h2>
+            </div>
+          </div>
+
+          <div class="mode-tabs" role="tablist" aria-label="Modo de verificação">
+            <button class="mode-tab is-active" id="singleTab" type="button" role="tab" aria-selected="true" aria-controls="singlePanel">
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.8" cy="8.8" r="5.8" stroke="currentColor" stroke-width="1.6"/><path d="m13.2 13.2 4.1 4.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              Um número
+            </button>
+            <button class="mode-tab" id="batchTab" type="button" role="tab" aria-selected="false" aria-controls="batchPanel">
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 3.5h7l3 3v10a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 4 16.5v-11A2 2 0 0 1 5 3.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 3.8v3h3M7 10h6M7 13h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              Lista em lote
+              <span class="tab-count">até 100 por chamada</span>
+            </button>
+          </div>
+
+          <section class="mode-panel" id="singlePanel" role="tabpanel" aria-labelledby="singleTab">
+            <form id="singleForm" novalidate>
+              <label class="field-label" for="singlePhone">Número de telefone</label>
+              <div class="phone-input-row">
+                <input id="singlePhone" name="phone" type="tel" autocomplete="tel" placeholder="+258 84 123 4567" aria-describedby="singleHint">
+                <button class="button button-primary" id="singleCheckButton" type="submit" disabled>
+                  <span>Verificar</span>
+                  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 10h11M10 5l5 5-5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </div>
+              <p class="field-hint" id="singleHint">Exemplo de Moçambique: +258 84 123 4567.</p>
+              <div class="country-settings">
+                <label class="field-label" for="singleCountry">País dos números sem indicativo</label>
+                <div class="country-controls">
+                  <select id="singleCountry" class="select-control">
+                    <option value="+55">Brasil (+55)</option>
+                    <option value="+351">Portugal (+351)</option>
+                    <option value="+244">Angola (+244)</option>
+                    <option value="+258" selected>Moçambique (+258)</option>
+                    <option value="+1">EUA / Canadá (+1)</option>
+                    <option value="+44">Reino Unido (+44)</option>
+                    <option value="custom">Outro indicativo</option>
+                  </select>
+                  <input id="singleCustomDial" class="custom-dial" type="text" inputmode="numeric" placeholder="+ código" aria-label="Indicativo do país" hidden>
+                </div>
+              </div>
+              <div class="inline-result" id="singleResult" aria-live="polite" hidden></div>
+            </form>
+          </section>
+
+          <section class="mode-panel" id="batchPanel" role="tabpanel" aria-labelledby="batchTab" hidden>
+            <div class="upload-area">
+              <label class="field-label" for="fileInput">Importar uma lista</label>
+              <div class="dropzone" id="dropzone">
+                <input id="fileInput" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden>
+                <span class="drop-icon" aria-hidden="true">
+                  <svg viewBox="0 0 28 28" fill="none"><path d="M14 18V4m0 0L9 9m5-5 5 5M5 17v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+                <div class="drop-copy">
+                  <strong>Arraste um ficheiro para aqui</strong>
+                  <span>CSV, TXT ou Excel (.xlsx/.xls), até 5 MB</span>
+                </div>
+                <button class="button button-quiet" id="chooseFileButton" type="button">Escolher ficheiro</button>
+              </div>
+              <div class="file-summary" id="fileSummary" hidden>
+                <span class="file-icon" id="fileIcon" aria-hidden="true">CSV</span>
+                <span class="file-name" id="fileName"></span>
+                <span class="file-count" id="fileCount"></span>
+                <button type="button" class="icon-button" id="removeFileButton" aria-label="Remover ficheiro" title="Remover ficheiro">×</button>
+              </div>
+
+              <div class="or-divider"><span>ou cole os números, um por linha</span></div>
+              <label class="sr-only" for="pasteInput">Cole números de telefone, um por linha</label>
+              <textarea id="pasteInput" class="paste-input" rows="3" placeholder="+258 84 123 4567&#10;+258 87 123 4567&#10;841234568"></textarea>
+              <div class="paste-actions">
+                <span class="field-hint">Aceita números com ou sem separadores.</span>
+                <button class="text-button" id="loadPasteButton" type="button">Usar lista colada</button>
+              </div>
+            </div>
+
+            <div class="import-settings" id="importSettings" hidden>
+              <div class="import-setting">
+                <label class="field-label" for="phoneColumn">Coluna dos números</label>
+                <select id="phoneColumn" class="select-control"></select>
+              </div>
+              <div class="import-setting">
+                <label class="field-label" for="batchCountry">País dos números sem indicativo</label>
+                <div class="country-controls">
+                  <select id="batchCountry" class="select-control">
+                    <option value="+55">Brasil (+55)</option>
+                    <option value="+351">Portugal (+351)</option>
+                    <option value="+244">Angola (+244)</option>
+                    <option value="+258" selected>Moçambique (+258)</option>
+                    <option value="+1">EUA / Canadá (+1)</option>
+                    <option value="+44">Reino Unido (+44)</option>
+                    <option value="custom">Outro indicativo</option>
+                  </select>
+                  <input id="batchCustomDial" class="custom-dial" type="text" inputmode="numeric" placeholder="+ código" aria-label="Indicativo do país para o ficheiro" hidden>
+                </div>
+              </div>
+              <label class="checkbox-label" id="headerSetting">
+                <input id="hasHeader" type="checkbox">
+                <span class="checkbox-box" aria-hidden="true"></span>
+                <span>A primeira linha tem títulos de coluna</span>
+              </label>
+            </div>
+
+            <div class="import-preview" id="importPreview" hidden>
+              <div class="preview-icon" aria-hidden="true">↳</div>
+              <div><strong id="previewTitle">Lista pronta</strong><span id="previewDetails"></span></div>
+            </div>
+
+            <div class="batch-actions">
+              <button class="button button-primary button-wide" id="batchCheckButton" type="button" disabled>
+                <span>Verificar lista</span>
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 10h11M10 5l5 5-5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <p class="field-hint" id="batchButtonHint">Adicione o Secret WHAPI_TOKEN para ativar.</p>
+            </div>
+            <div class="progress-wrap" id="progressWrap" hidden aria-live="polite">
+              <div class="progress-top"><span id="progressLabel">A preparar a consulta…</span><span id="progressPercent">0%</span></div>
+              <div class="progress-track"><span id="progressBar"></span></div>
+            </div>
+            <div class="inline-alert" id="batchAlert" role="status" hidden></div>
+          </section>
+
+          <div class="card-footnote">
+            <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.2 3 4.5v4.2c0 3.5 2.4 5.8 6 7.1 3.6-1.3 6-3.6 6-7.1V4.5L9 2.2Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/><path d="m6.5 8.9 1.7 1.7 3.4-3.5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Esta ferramenta consulta o serviço conectado; não envia mensagens aos contactos.</span>
+          </div>
+        </section>
+
+      </div>
+
+      <section class="results-section" id="resultsSection" hidden aria-labelledby="resultsTitle">
+        <div class="results-heading">
+          <div><p class="section-kicker">RESULTADOS</p><h2 id="resultsTitle">Resumo da consulta</h2></div>
+          <div class="export-actions">
+            <button class="button button-outline" id="exportValidButton" type="button">↓ Com WhatsApp</button>
+            <button class="button button-outline" id="exportInvalidButton" type="button">↓ Sem WhatsApp</button>
+            <button class="button button-quiet" id="exportAllButton" type="button">Exportar tudo</button>
+          </div>
+        </div>
+        <div class="summary-grid">
+          <article class="summary-card summary-valid"><span class="summary-label"><span class="summary-dot"></span> Tem WhatsApp</span><strong id="validCount">0</strong><span class="summary-sub">números confirmados</span></article>
+          <article class="summary-card summary-invalid"><span class="summary-label"><span class="summary-dot"></span> Não tem WhatsApp</span><strong id="invalidCount">0</strong><span class="summary-sub">números não encontrados</span></article>
+          <article class="summary-card summary-format"><span class="summary-label"><span class="summary-dot"></span> Formato inválido</span><strong id="formatCount">0</strong><span class="summary-sub">revise o indicativo</span></article>
+          <article class="summary-card summary-unknown"><span class="summary-label"><span class="summary-dot"></span> Não confirmado</span><strong id="unknownCount">0</strong><span class="summary-sub">consulta inconclusiva</span></article>
+        </div>
+        <div class="table-card">
+          <div class="table-heading">
+            <div><h3>Números consultados</h3><span id="tableSubtitle">As consultas não enviam mensagens.</span></div>
+            <label class="filter-control"><span>Mostrar</span><select id="resultFilter" class="select-control select-small"><option value="all">Todos</option><option value="valid">Tem WhatsApp</option><option value="invalid">Não tem</option><option value="invalid_format">Formato inválido</option><option value="unknown">Não confirmado</option></select></label>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Número</th><th>Estado</th><th>Indicativo</th></tr></thead>
+              <tbody id="resultsBody"></tbody>
+            </table>
+          </div>
+          <p class="table-footnote" id="tableFootnote"></p>
+        </div>
+      </section>
+
+      <footer class="page-footer">
+        <span>contacto<span class="footer-accent">check</span></span>
+        <span>Os números introduzidos são enviados ao serviço conectado para consulta. Consulte a política do fornecedor antes de processar dados pessoais.</span>
+      </footer>
+    </main>
+  </body>
+</html>

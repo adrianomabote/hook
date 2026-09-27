@@ -938,9 +938,16 @@ async function copyWhatsAppContacts() {
   ].map((row) => row.join("\t")).join("\r\n");
 
   try {
+    let copied = false;
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(content);
-    } else {
+      try {
+        await navigator.clipboard.writeText(content);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+    }
+    if (!copied) {
       const textarea = document.createElement("textarea");
       textarea.value = content;
       textarea.setAttribute("readonly", "");

@@ -220,6 +220,8 @@ async function processCheckJob(job) {
   job.phones = null;
   job.finishedAt = Date.now();
   if (job.status !== "failed") job.status = "completed";
+  const cleanupTimer = setTimeout(() => checkJobs.delete(job.id), JOB_RETENTION_MS);
+  cleanupTimer.unref?.();
 }
 
 async function checkPhones(request, response) {

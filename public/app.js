@@ -618,6 +618,7 @@ async function runBatchCheck() {
   }
 
   state.checking = true;
+  state.filteredWhatsAppFile = null;
   state.results = records;
   elements.resultsSection.hidden = false;
   elements.batchAlert.hidden = true;
@@ -651,8 +652,23 @@ async function runBatchCheck() {
       status: record.phone ? (resultByPhone.get(record.phone) || "unknown") : "invalid_format",
     }));
     renderBatchResults();
+    let filePreparationError = null;
+    try {
+      await prepareWhatsAppFile();
+    } catch (error) {
+      state.filteredWhatsAppFile = null;
+      filePreparationError = error;
+    }
+    renderBatchResults();
     renderProgress(completed, uniquePhones.length, `${completed.toLocaleString("pt-PT")} de ${uniquePhones.length.toLocaleString("pt-PT")} números consultados`);
-    showBatchAlert("Consulta concluída. Pode exportar os números com e sem WhatsApp em ficheiros separados.");
+    if (state.filteredWhatsAppFile) {
+      const validCount = state.results.filter((record) => record.status === "valid").length;
+      showBatchAlert(`Consulta concluída. O ficheiro com ${validCount.toLocaleString("pt-PT")} contactos com WhatsApp está pronto para descarregar.`);
+    } else if (filePreparationError) {
+      showBatchAlert(`A consulta terminou, mas não foi possível preparar o ficheiro filtrado: ${filePreparationError.message}`, true);
+    } else {
+      showBatchAlert("Consulta concluída. Não foram encontrados contactos com WhatsApp para exportar.");
+    }
   } catch (error) {
     state.results = records.map((record) => ({
       ...record,
@@ -708,7 +724,7 @@ function renderBatchResults() {
   elements.formatCount.textContent = counts.invalid_format.toLocaleString("pt-PT");
   elements.unknownCount.textContent = counts.unknown.toLocaleString("pt-PT");
   elements.tableSubtitle.textContent = `${rows.length.toLocaleString("pt-PT")} linhas • as consultas não enviam mensagens`;
-  elements.exportValidButton.disabled = counts.valid === 0 || state.checking;
+  elements.exportValidButton.disabled = !state.filteredWhatsAppFile || state.checking;
   elements.exportInvalidButton.disabled = counts.invalid === 0 || state.checking;
   elements.exportAllButton.disabled = rows.length === 0 || state.checking;
 
@@ -765,6 +781,84 @@ function statusForExport(status) {
   return "nao_confirmado";
 }
 
+function delimitedCell(value, delimiter) {
+  const text = String(value ?? "");
+  if (text.includes(delimiter) || /["\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function sourceRowsForValidContacts(validRecords) {
+  const imported = state.imported;
+  const columnCount = Math.max(1, ...imported.rawRows.map((row) => row.length));
+  const rows = [];
+
+  if (imported.hasHeader) {
+    const header = [...imported.rawRows[0]];
+    while (header.length < columnCount) header.push("");
+    rows.push(header);
+  }
+
+  validRecords.forEach((record) => {
+    const source = [...record.cells];
+    while (source.length < columnCount) source.push("");
+    rows.push(source.slice(0, columnCount));
+  });
+
+  return rows;
+}
+
+async function prepareWhatsAppFile() {
+  const imported = state.imported;
+  const validRecords = state.results.filter((record) => record.status === "valid");
+  state.filteredWhatsAppFile = null;
+  if (!imported || !validRecords.length) return;
+
+  const rows = sourceRowsForValidContacts(validRecords);
+  const baseName = imported.fileName
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-z0-9_-]+/gi, "-")
+    .replace(/^-+|-+$/g, "") || "numeros";
+
+  if (["xlsx", "xls"].includes(imported.fileType)) {
+    const XLSX = await loadSpreadsheetLibrary();
+    const workbook = XLSX.utils.book_new();
+    const sheetName = imported.sheetName.replace(/[\\/?*:\[\]]/g, " ").slice(0, 31) || "Contactos";
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), sheetName);
+    const content = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    state.filteredWhatsAppFile = {
+      blob: new Blob([content], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+      fileName: `${baseName}-com-whatsapp.xlsx`,
+    };
+    return;
+  }
+
+  const delimiter = imported.delimiter || ",";
+  const content = rows
+    .map((row) => row.map((cell) => delimitedCell(cell, delimiter)).join(delimiter))
+    .join("\r\n");
+  const isText = imported.fileType === "txt";
+  state.filteredWhatsAppFile = {
+    blob: new Blob([isText ? content : `\uFEFF${content}`], {
+      type: isText ? "text/plain;charset=utf-8" : "text/csv;charset=utf-8",
+    }),
+    fileName: `${baseName}-com-whatsapp.${isText ? "txt" : "csv"}`,
+  };
+}
+
+function downloadWhatsAppFile() {
+  if (!state.filteredWhatsAppFile) return;
+  const url = URL.createObjectURL(state.filteredWhatsAppFile.blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = state.filteredWhatsAppFile.fileName;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 function downloadCsv(filter) {
   const rows = state.results.filter((row) => filter === "all" || row.status === filter);
   if (!rows.length || !state.imported) return;
@@ -806,7 +900,7 @@ function downloadCsv(filter) {
   URL.revokeObjectURL(url);
 }
 
-elements.exportValidButton.addEventListener("click", () => downloadCsv("valid"));
+elements.exportValidButton.addEventListener("click", downloadWhatsAppFile);
 elements.exportInvalidButton.addEventListener("click", () => downloadCsv("invalid"));
 elements.exportAllButton.addEventListener("click", () => downloadCsv("all"));
 

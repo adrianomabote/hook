@@ -30,6 +30,7 @@ const elements = {
   batchCountry: document.querySelector("#batchCountry"),
   batchCustomDial: document.querySelector("#batchCustomDial"),
   hasHeader: document.querySelector("#hasHeader"),
+  headerSetting: document.querySelector("#headerSetting"),
   importPreview: document.querySelector("#importPreview"),
   previewTitle: document.querySelector("#previewTitle"),
   previewDetails: document.querySelector("#previewDetails"),

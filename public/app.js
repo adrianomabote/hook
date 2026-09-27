@@ -776,7 +776,10 @@ function renderBatchResults() {
   elements.formatCount.textContent = counts.invalid_format.toLocaleString("pt-PT");
   elements.unknownCount.textContent = counts.unknown.toLocaleString("pt-PT");
   elements.tableSubtitle.textContent = `${rows.length.toLocaleString("pt-PT")} linhas • as consultas não enviam mensagens`;
-  elements.exportValidButton.disabled = !state.filteredWhatsAppFile || state.checking;
+  const hasValidContacts = counts.valid > 0 && !state.checking;
+  elements.exportValidButton.disabled = !hasValidContacts;
+  elements.copyValidButton.disabled = !hasValidContacts;
+  elements.exportFormat.disabled = !hasValidContacts;
   elements.exportInvalidButton.disabled = counts.invalid === 0 || state.checking;
   elements.exportAllButton.disabled = rows.length === 0 || state.checking;
 
@@ -812,7 +815,7 @@ function renderBatchResults() {
   }
 
   elements.tableFootnote.textContent = filtered.length > MAX_PREVIEW_ROWS
-    ? `A mostrar ${MAX_PREVIEW_ROWS} de ${filtered.length.toLocaleString("pt-PT")} linhas. Exporte o CSV para ver todos os resultados.`
+    ? `A mostrar ${MAX_PREVIEW_ROWS} de ${filtered.length.toLocaleString("pt-PT")} linhas. Copie ou descarregue os contactos para obter a lista completa.`
     : `${filtered.length.toLocaleString("pt-PT")} linhas nesta vista.`;
 }
 
@@ -841,57 +844,66 @@ function delimitedCell(value, delimiter) {
   return text;
 }
 
-function sourceRowsForValidContacts(validRecords) {
+function verifiedContacts() {
+  return state.results
+    .filter((record) => record.status === "valid")
+    .map((record, index) => ({
+      ...record,
+      contactName: `Número de WhatsApp ${index + 1}`,
+    }));
+}
+
+function sourceRowsForValidContacts(validContacts) {
   const imported = state.imported;
   const columnCount = Math.max(1, ...imported.rawRows.map((row) => row.length));
-  const rows = [];
+  const sourceHeaders = imported.hasHeader
+    ? [...imported.rawRows[0]]
+    : imported.headers.slice(0, columnCount);
+  while (sourceHeaders.length < columnCount) sourceHeaders.push("");
+  const rows = [[...sourceHeaders, "Nome de WhatsApp", "Número de WhatsApp"]];
 
-  if (imported.hasHeader) {
-    const header = [...imported.rawRows[0]];
-    while (header.length < columnCount) header.push("");
-    rows.push(header);
-  }
-
-  validRecords.forEach((record) => {
+  validContacts.forEach((record) => {
     const source = [...record.cells];
     while (source.length < columnCount) source.push("");
-    rows.push(source.slice(0, columnCount));
+    rows.push([
+      ...source.slice(0, columnCount),
+      record.contactName,
+      record.phone,
+    ]);
   });
 
   return rows;
 }
 
-async function prepareWhatsAppFile() {
+async function prepareWhatsAppFile(format = elements.exportFormat.value) {
   const imported = state.imported;
-  const validRecords = state.results.filter((record) => record.status === "valid");
-  state.filteredWhatsAppFile = null;
-  if (!imported || !validRecords.length) return;
+  const validContacts = verifiedContacts();
+  if (!imported || !validContacts.length) return null;
 
-  const rows = sourceRowsForValidContacts(validRecords);
+  const rows = sourceRowsForValidContacts(validContacts);
   const baseName = imported.fileName
     .replace(/\.[^.]+$/, "")
     .replace(/[^a-z0-9_-]+/gi, "-")
     .replace(/^-+|-+$/g, "") || "numeros";
 
-  if (["xlsx", "xls"].includes(imported.fileType)) {
+  if (format === "xlsx") {
     const XLSX = await loadSpreadsheetLibrary();
     const workbook = XLSX.utils.book_new();
     const sheetName = imported.sheetName.replace(/[\\/?*:\[\]]/g, " ").slice(0, 31) || "Contactos";
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), sheetName);
     const content = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-    state.filteredWhatsAppFile = {
+    return {
       blob: new Blob([content], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
       fileName: `${baseName}-com-whatsapp.xlsx`,
     };
-    return;
   }
 
-  const delimiter = imported.delimiter || ",";
+  const isText = format === "txt";
+  const delimiter = isText ? "\t" : ",";
   const content = rows
     .map((row) => row.map((cell) => delimitedCell(cell, delimiter)).join(delimiter))
     .join("\r\n");
-  const isText = imported.fileType === "txt";
-  state.filteredWhatsAppFile = {
+  return {
     blob: new Blob([isText ? content : `\uFEFF${content}`], {
       type: isText ? "text/plain;charset=utf-8" : "text/csv;charset=utf-8",
     }),
@@ -899,16 +911,51 @@ async function prepareWhatsAppFile() {
   };
 }
 
-function downloadWhatsAppFile() {
-  if (!state.filteredWhatsAppFile) return;
-  const url = URL.createObjectURL(state.filteredWhatsAppFile.blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = state.filteredWhatsAppFile.fileName;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+async function downloadWhatsAppFile() {
+  try {
+    const file = await prepareWhatsAppFile();
+    if (!file) return;
+    const url = URL.createObjectURL(file.blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = file.fileName;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  } catch (error) {
+    showBatchAlert(`Não foi possível preparar o ficheiro: ${error.message}`, true);
+  }
+}
+
+async function copyWhatsAppContacts() {
+  const contacts = verifiedContacts();
+  if (!contacts.length) return;
+
+  const content = [
+    ["Nome de WhatsApp", "Número de WhatsApp"],
+    ...contacts.map((contact) => [contact.contactName, contact.phone]),
+  ].map((row) => row.join("\t")).join("\r\n");
+
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(content);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = content;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.append(textarea);
+      textarea.select();
+      const copied = document.execCommand?.("copy");
+      textarea.remove();
+      if (!copied) throw new Error("A área de transferência não está disponível.");
+    }
+    showBatchAlert(`${contacts.length.toLocaleString("pt-PT")} contactos copiados. Pode colá-los onde quiser.`);
+  } catch {
+    showBatchAlert("Não foi possível copiar automaticamente. Permita o acesso à área de transferência e tente novamente.", true);
+  }
 }
 
 function downloadCsv(filter) {
@@ -953,6 +1000,7 @@ function downloadCsv(filter) {
 }
 
 elements.exportValidButton.addEventListener("click", downloadWhatsAppFile);
+elements.copyValidButton.addEventListener("click", copyWhatsAppContacts);
 elements.exportInvalidButton.addEventListener("click", () => downloadCsv("invalid"));
 elements.exportAllButton.addEventListener("click", () => downloadCsv("all"));
 

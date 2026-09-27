@@ -171,7 +171,16 @@
         <div class="results-heading">
           <div><p class="section-kicker">RESULTADOS</p><h2 id="resultsTitle">Resumo da consulta</h2></div>
           <div class="export-actions">
-            <button class="button button-outline" id="exportValidButton" type="button" aria-label="Baixar ficheiro apenas com contactos que têm WhatsApp">↓ Baixar só com WhatsApp</button>
+            <label class="export-format-control" for="exportFormat">
+              <span>Formato</span>
+              <select id="exportFormat" class="select-control select-small" disabled>
+                <option value="csv">CSV</option>
+                <option value="txt">TXT</option>
+                <option value="xlsx">Excel (XLSX)</option>
+              </select>
+            </label>
+            <button class="button button-outline" id="exportValidButton" type="button" aria-label="Baixar contactos confirmados" disabled>↓ Baixar contactos</button>
+            <button class="button button-outline" id="copyValidButton" type="button" aria-label="Copiar contactos confirmados" disabled>Copiar contactos</button>
             <button class="button button-outline" id="exportInvalidButton" type="button">↓ Sem WhatsApp</button>
             <button class="button button-quiet" id="exportAllButton" type="button">Exportar tudo</button>
           </div>

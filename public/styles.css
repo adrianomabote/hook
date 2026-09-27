@@ -57,7 +57,7 @@ a {
   margin: 0 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   border-bottom: 1px solid rgba(218, 229, 222, 0.78);
 }
 
@@ -101,8 +101,14 @@ a {
 .hero {
   padding: 54px 0 34px;
   display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+}
+
+.hero-copy {
+  width: 100%;
 }
 
 .eyebrow,
@@ -117,6 +123,7 @@ a {
 .eyebrow {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 9px;
 }
 
@@ -149,7 +156,7 @@ h1 span {
 
 .hero-description {
   max-width: 515px;
-  margin: 0;
+  margin: 0 auto;
   color: #68776f;
   font-size: 15px;
   line-height: 1.7;
@@ -160,7 +167,7 @@ h1 span {
   align-items: center;
   gap: 12px;
   padding: 13px 16px;
-  margin: 0 1px 4px 20px;
+  margin: 0;
   border: 1px solid #dfebe4;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.6);
@@ -223,9 +230,10 @@ h1 span {
 .card-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 12px;
   padding: 0 0 20px;
+  text-align: center;
 }
 
 .card-heading h2,
@@ -240,6 +248,7 @@ h1 span {
 
 .mode-tabs {
   display: flex;
+  justify-content: center;
   gap: 22px;
   border-bottom: 1px solid var(--line);
 }
@@ -281,6 +290,8 @@ h1 span {
 }
 
 .mode-panel {
+  max-width: 860px;
+  margin: 0 auto;
   padding: 22px 0 19px;
 }
 
@@ -1019,15 +1030,19 @@ h1 span {
 }
 
 .results-section {
+  max-width: 1000px;
+  margin: 0 auto;
   padding-top: 31px;
 }
 
 .results-heading {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 18px;
   margin-bottom: 16px;
+  text-align: center;
 }
 
 .results-heading h2 {
@@ -1036,6 +1051,7 @@ h1 span {
 
 .export-actions {
   display: flex;
+  justify-content: center;
   flex-wrap: wrap;
   gap: 7px;
 }
@@ -1049,19 +1065,23 @@ h1 span {
 
 .summary-card {
   min-height: 102px;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   padding: 15px 16px 12px;
   border: 1px solid #e5ece8;
   border-radius: 12px;
   background: #fff;
   box-shadow: 0 8px 20px rgba(24, 59, 44, 0.025);
+  text-align: center;
 }
 
 .summary-label {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   color: #65746c;
   font-size: 10px;
@@ -1089,7 +1109,6 @@ h1 span {
 }
 
 .summary-card strong {
-  grid-row: span 2;
   color: #21342b;
   font-family: Inter, "Segoe UI", system-ui, sans-serif;
   font-size: 25px;
@@ -1098,7 +1117,7 @@ h1 span {
 }
 
 .summary-sub {
-  margin-top: 8px;
+  margin: 0;
   color: #9aa49e;
   font-size: 9px;
 }
@@ -1110,11 +1129,13 @@ h1 span {
 .table-heading {
   min-height: 68px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 12px;
   padding: 12px 17px;
   border-bottom: 1px solid #edf1ee;
+  text-align: center;
 }
 
 .table-heading h3 {
@@ -1237,9 +1258,11 @@ td:first-child {
 .page-footer {
   min-height: 72px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 20px;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 0;
   margin-top: 25px;
   color: #8a9890;
   border-top: 1px solid #e3ebe6;
@@ -1260,7 +1283,7 @@ td:first-child {
 }
 
 .page-footer > span:last-child {
-  text-align: right;
+  text-align: center;
   line-height: 1.5;
 }
 
@@ -1288,11 +1311,6 @@ td:first-child {
 
   .work-card {
     min-height: auto;
-  }
-
-  .side-column {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
   }
 
   .hero {
@@ -1326,10 +1344,6 @@ td:first-child {
   .hero-description {
     max-width: 390px;
     font-size: 13px;
-  }
-
-  .hero-stamp {
-    display: none;
   }
 
   .work-card {
@@ -1409,8 +1423,7 @@ td:first-child {
   }
 
   .results-heading {
-    align-items: flex-start;
-    flex-direction: column;
+    align-items: center;
   }
 
   .results-heading h2 {
@@ -1446,13 +1459,12 @@ td:first-child {
   }
 
   .table-heading {
-    align-items: flex-start;
-    flex-direction: column;
+    align-items: center;
   }
 
   .filter-control {
     width: 100%;
-    justify-content: space-between;
+    justify-content: center;
   }
 
   .select-small {
@@ -1465,13 +1477,6 @@ td:first-child {
   }
 
   .page-footer {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 5px;
-    padding: 16px 0;
-  }
-
-  .page-footer > span:last-child {
-    text-align: left;
+    align-items: center;
   }
 }

@@ -229,7 +229,7 @@ function findPhoneHeader(row) {
 
 function choosePhoneColumn(rows, hasHeader, select, customInput) {
   const startAt = hasHeader ? 1 : 0;
-  const columnCount = Math.max(1, ...rows.map((row) => row.length));
+  const columnCount = rows.reduce((largest, row) => Math.max(largest, row.length), 1);
   let bestColumn = 0;
   let bestScore = -1;
 
@@ -855,7 +855,10 @@ function verifiedContacts() {
 
 function sourceRowsForValidContacts(validContacts) {
   const imported = state.imported;
-  const columnCount = Math.max(1, ...imported.rawRows.map((row) => row.length));
+  const columnCount = imported.rawRows.reduce(
+    (largest, row) => Math.max(largest, row.length),
+    1,
+  );
   const sourceHeaders = imported.hasHeader
     ? [...imported.rawRows[0]]
     : imported.headers.slice(0, columnCount);

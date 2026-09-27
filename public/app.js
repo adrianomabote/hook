@@ -1,4 +1,5 @@
-const MAX_UNIQUE_PER_RUN = 1500;
+const MAX_UNIQUE_PER_RUN = 250_000;
+const PROVIDER_BATCH_SIZE = 1500;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_PREVIEW_ROWS = 12;
 let xlsxLibraryPromise = null;
@@ -48,7 +49,9 @@ const elements = {
   resultFilter: document.querySelector("#resultFilter"),
   tableSubtitle: document.querySelector("#tableSubtitle"),
   tableFootnote: document.querySelector("#tableFootnote"),
+  exportFormat: document.querySelector("#exportFormat"),
   exportValidButton: document.querySelector("#exportValidButton"),
+  copyValidButton: document.querySelector("#copyValidButton"),
   exportInvalidButton: document.querySelector("#exportInvalidButton"),
   exportAllButton: document.querySelector("#exportAllButton"),
 };
@@ -57,7 +60,6 @@ const state = {
   tokenConfigured: false,
   checking: false,
   imported: null,
-  filteredWhatsAppFile: null,
   results: [],
   filter: "all",
 };

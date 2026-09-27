@@ -57,6 +57,7 @@ const state = {
   tokenConfigured: false,
   checking: false,
   imported: null,
+  filteredWhatsAppFile: null,
   results: [],
   filter: "all",
 };
@@ -147,7 +148,7 @@ function parseDelimitedText(text) {
 
   row.push(cell);
   if (row.some((value) => value.trim())) rows.push(row);
-  return rows;
+  return { rows, delimiter: separator };
 }
 
 function loadSpreadsheetLibrary() {
@@ -241,7 +242,7 @@ function choosePhoneColumn(rows, hasHeader, select, customInput) {
   return bestColumn;
 }
 
-function createImport(rows, fileName) {
+function createImport(rows, fileName, options = {}) {
   if (!rows.length) {
     showBatchAlert("Não encontrei linhas com dados nesse ficheiro.", true);
     return;
@@ -254,6 +255,9 @@ function createImport(rows, fileName) {
     : rows[0].map((_, index) => `Coluna ${index + 1}`);
   const importState = {
     fileName,
+    fileType: options.fileType || (fileName.match(/\.([^.]+)$/)?.[1] || "csv").toLowerCase(),
+    delimiter: options.delimiter || ",",
+    sheetName: options.sheetName || "Contactos",
     rawRows: rows,
     headers,
     headerDetected: hasHeader,
@@ -265,6 +269,7 @@ function createImport(rows, fileName) {
   };
 
   state.imported = importState;
+  state.filteredWhatsAppFile = null;
   state.results = [];
   elements.hasHeader.checked = hasHeader;
   elements.fileName.textContent = fileName;
@@ -511,8 +516,8 @@ elements.hasHeader.addEventListener("change", () => {
   updateImportPreview();
 });
 
-function importRows(rows, fileName) {
-  createImport(rows, fileName);
+function importRows(rows, fileName, options) {
+  createImport(rows, fileName, options);
 }
 
 async function loadFile(file) {
@@ -529,10 +534,15 @@ async function loadFile(file) {
   }
 
   try {
-    const rows = ["xlsx", "xls"].includes(extension)
+    const parsed = ["xlsx", "xls"].includes(extension)
       ? await parseSpreadsheet(await file.arrayBuffer())
       : parseDelimitedText(await file.text());
-    importRows(rows, file.name);
+    const rows = Array.isArray(parsed) ? parsed : parsed.rows;
+    importRows(rows, file.name, {
+      fileType: extension,
+      delimiter: parsed.delimiter,
+      sheetName: parsed.sheetName,
+    });
   } catch {
     showBatchAlert("Não consegui ler o ficheiro. Confirme se é um CSV, TXT ou ficheiro Excel válido.", true);
   }
@@ -564,11 +574,12 @@ elements.loadPasteButton.addEventListener("click", () => {
     showBatchAlert("Cole pelo menos um número, um por linha.", true);
     return;
   }
-  importRows(rows, "Lista colada");
+  importRows(rows, "Lista colada", { fileType: "txt", delimiter: "," });
 });
 
 elements.removeFileButton.addEventListener("click", () => {
   state.imported = null;
+  state.filteredWhatsAppFile = null;
   state.results = [];
   elements.fileInput.value = "";
   elements.fileSummary.hidden = true;

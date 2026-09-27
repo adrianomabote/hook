@@ -8,6 +8,7 @@
     <title>Verificador WhatsApp — Contacto</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
+    <script src="/vendor/xlsx.full.min.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -38,7 +39,7 @@
               <path d="m10 12 2 2 3.5-4M17.5 12h5M10 20l2 2 3.5-4M17.5 20h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </div>
-          <div><strong>Dois modos</strong><span>Individual e CSV em lote</span></div>
+          <div><strong>Dois modos</strong><span>Individual e lista em lote</span></div>
         </div>
       </section>
 
@@ -58,7 +59,7 @@
             </button>
             <button class="mode-tab" id="batchTab" type="button" role="tab" aria-selected="false" aria-controls="batchPanel">
               <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 3.5h7l3 3v10a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 4 16.5v-11A2 2 0 0 1 5 3.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 3.8v3h3M7 10h6M7 13h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-              Ficheiro CSV
+              Lista em lote
               <span class="tab-count">até 50 por chamada</span>
             </button>
           </div>
@@ -97,18 +98,18 @@
             <div class="upload-area">
               <label class="field-label" for="fileInput">Importar uma lista</label>
               <div class="dropzone" id="dropzone">
-                <input id="fileInput" type="file" accept=".csv,.txt,text/csv,text/plain" hidden>
+                <input id="fileInput" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden>
                 <span class="drop-icon" aria-hidden="true">
                   <svg viewBox="0 0 28 28" fill="none"><path d="M14 18V4m0 0L9 9m5-5 5 5M5 17v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </span>
                 <div class="drop-copy">
-                  <strong>Arraste o CSV para aqui</strong>
-                  <span>ou escolha um ficheiro .csv ou .txt (até 5 MB)</span>
+                  <strong>Arraste um ficheiro para aqui</strong>
+                  <span>CSV, TXT ou Excel (.xlsx/.xls), até 5 MB</span>
                 </div>
                 <button class="button button-quiet" id="chooseFileButton" type="button">Escolher ficheiro</button>
               </div>
               <div class="file-summary" id="fileSummary" hidden>
-                <span class="file-icon" aria-hidden="true">CSV</span>
+                <span class="file-icon" id="fileIcon" aria-hidden="true">CSV</span>
                 <span class="file-name" id="fileName"></span>
                 <span class="file-count" id="fileCount"></span>
                 <button type="button" class="icon-button" id="removeFileButton" aria-label="Remover ficheiro" title="Remover ficheiro">×</button>

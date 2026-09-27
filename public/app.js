@@ -676,6 +676,7 @@ async function runBatchCheck() {
   elements.batchAlert.hidden = true;
   elements.batchCheckButton.disabled = true;
   updateBatchButton();
+  renderBatchResults();
 
   if (uniquePhones.length === 0) {
     renderBatchResults();

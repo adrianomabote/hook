@@ -86,18 +86,18 @@ function digitsOnly(value) {
 
 function providerErrorMessage(statusCode) {
   if (statusCode === 401) {
-    return "O token foi recusado ou o canal WhatsApp ainda não está autorizado no Whapi.Cloud.";
+    return "O token foi recusado ou o canal WhatsApp ainda não está autorizado.";
   }
   if (statusCode === 402) {
-    return "O limite do plano de teste do Whapi.Cloud foi atingido.";
+    return "O limite de consultas do plano atual foi atingido.";
   }
   if (statusCode === 429) {
-    return "O Whapi.Cloud limitou temporariamente as consultas. Aguarde e tente novamente.";
+    return "O serviço limitou temporariamente as consultas. Aguarde e tente novamente.";
   }
   if (statusCode === 400) {
-    return "O Whapi.Cloud rejeitou os parâmetros enviados. Confira o formato internacional dos números.";
+    return "O serviço rejeitou os parâmetros enviados. Confira o formato internacional dos números.";
   }
-  return `O Whapi.Cloud não concluiu a consulta (HTTP ${statusCode}).`;
+  return `O serviço não concluiu a consulta (HTTP ${statusCode}).`;
 }
 
 async function checkPhones(request, response) {
@@ -181,7 +181,7 @@ async function checkPhones(request, response) {
     } catch {
       sendJson(response, 502, {
         code: "invalid_provider_response",
-        error: "O Whapi.Cloud devolveu uma resposta que não pôde ser interpretada.",
+      error: "O serviço devolveu uma resposta que não pôde ser interpretada.",
       });
       return;
     }
@@ -189,7 +189,7 @@ async function checkPhones(request, response) {
     if (!Array.isArray(data.contacts)) {
       sendJson(response, 502, {
         code: "invalid_provider_response",
-        error: "A resposta do Whapi.Cloud não contém a lista de resultados esperada.",
+      error: "A resposta do serviço não contém a lista de resultados esperada.",
       });
       return;
     }
@@ -214,8 +214,8 @@ async function checkPhones(request, response) {
     sendJson(response, 502, {
       code: timedOut ? "provider_timeout" : "provider_unavailable",
       error: timedOut
-        ? "A consulta ao Whapi.Cloud demorou demais. Tente novamente."
-        : "Não foi possível conectar ao Whapi.Cloud. Tente novamente mais tarde.",
+        ? "A consulta demorou demais. Tente novamente."
+        : "Não foi possível conectar ao serviço. Tente novamente mais tarde.",
     });
   }
 }

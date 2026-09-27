@@ -4,8 +4,6 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_PREVIEW_ROWS = 12;
 
 const elements = {
-  connectionStatus: document.querySelector("#connectionStatus"),
-  connectionLabel: document.querySelector("#connectionLabel"),
   singleTab: document.querySelector("#singleTab"),
   batchTab: document.querySelector("#batchTab"),
   singlePanel: document.querySelector("#singlePanel"),
@@ -314,11 +312,6 @@ function setMode(mode) {
 
 function setConnectionState(configured) {
   state.tokenConfigured = Boolean(configured);
-  elements.connectionStatus.classList.toggle("is-configured", state.tokenConfigured);
-  elements.connectionStatus.classList.toggle("is-missing", !state.tokenConfigured);
-  elements.connectionLabel.textContent = state.tokenConfigured
-    ? "Token configurado"
-    : "Token necessário";
   elements.singleCheckButton.disabled = !state.tokenConfigured || state.checking;
   updateBatchButton();
 }
@@ -330,7 +323,6 @@ async function refreshHealth() {
     setConnectionState(response.ok && health.tokenConfigured);
   } catch {
     setConnectionState(false);
-    elements.connectionLabel.textContent = "Servidor indisponível";
   }
 }
 
@@ -370,8 +362,8 @@ function statusTitle(status) {
 }
 
 function statusDescription(status) {
-  if (status === "valid") return "O Whapi.Cloud encontrou uma conta para este número.";
-  if (status === "invalid") return "O Whapi.Cloud não encontrou uma conta para este número.";
+  if (status === "valid") return "O serviço encontrou uma conta para este número.";
+  if (status === "invalid") return "O serviço não encontrou uma conta para este número.";
   if (status === "invalid_format") return "Confira o número e o indicativo do país.";
   if (status === "pending") return "A consulta está em curso.";
   return "O serviço não devolveu uma resposta conclusiva.";

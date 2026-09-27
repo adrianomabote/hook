@@ -249,13 +249,11 @@ h1 span {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.83fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 19px;
-  align-items: stretch;
 }
 
 .work-card,
-.side-card,
 .table-card {
   border: 1px solid #e6ece8;
   border-radius: 17px;
@@ -264,7 +262,10 @@ h1 span {
 }
 
 .work-card {
-  min-height: 537px;
+  width: 100%;
+  max-width: 1000px;
+  min-height: 425px;
+  margin: 0 auto;
   padding: 25px 27px 0;
   overflow: hidden;
 }

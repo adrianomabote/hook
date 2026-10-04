@@ -55,7 +55,14 @@ const elements = {
   copyValidButton: document.querySelector("#copyValidButton"),
   exportInvalidButton: document.querySelector("#exportInvalidButton"),
   exportAllButton: document.querySelector("#exportAllButton"),
+  historyStatus: document.querySelector("#historyStatus"),
+  historyList: document.querySelector("#historyList"),
+  clearHistoryButton: document.querySelector("#clearHistoryButton"),
 };
+
+const EXPORT_HISTORY_DB = "contactocheck-export-history";
+const EXPORT_HISTORY_STORE = "verified-files";
+let exportHistoryDbPromise = null;
 
 const state = {
   tokenConfigured: false,
@@ -351,7 +358,7 @@ function updateBatchButton() {
   } else if (!hasData) {
     elements.batchButtonHint.textContent = "Importe CSV, TXT ou Excel, ou cole uma lista de números.";
   } else {
-    elements.batchButtonHint.textContent = `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos; o serviço consulta em blocos de ${PROVIDER_BATCH_SIZE.toLocaleString("pt-PT")}, sem enviar mensagens.`;
+    elements.batchButtonHint.textContent = `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos. Acima de 1.500, a consulta continua em segundo plano; não são enviadas mensagens.`;
   }
 }
 
@@ -619,16 +626,15 @@ elements.dropzone.addEventListener("drop", (event) => {
 });
 
 elements.loadPasteButton.addEventListener("click", () => {
-  const rows = elements.pasteInput.value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => [line]);
-  if (!rows.length) {
+  const pasted = parseDelimitedText(elements.pasteInput.value);
+  if (!pasted.rows.length) {
     showBatchAlert("Cole pelo menos um número, um por linha.", true);
     return;
   }
-  importRows(rows, "Lista colada", { fileType: "txt", delimiter: "," });
+  importRows(pasted.rows, "Lista colada", {
+    fileType: "txt",
+    delimiter: pasted.delimiter,
+  });
 });
 
 elements.removeFileButton.addEventListener("click", () => {
@@ -926,14 +932,19 @@ async function downloadWhatsAppFile() {
   try {
     const file = await prepareWhatsAppFile();
     if (!file) return;
-    const url = URL.createObjectURL(file.blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = file.fileName;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    const contacts = verifiedContacts();
+    triggerBlobDownload(file.fileName, file.blob);
+
+    try {
+      await saveExportHistory(file, contacts.length, state.imported.fileName);
+      await renderExportHistory(`${file.fileName} foi guardado no histórico deste navegador.`);
+      showBatchAlert(`${contacts.length.toLocaleString("pt-PT")} contactos confirmados descarregados e guardados no histórico local.`);
+    } catch {
+      showBatchAlert(
+        "O ficheiro foi descarregado, mas não foi possível guardá-lo no histórico deste navegador.",
+        true,
+      );
+    }
   } catch (error) {
     showBatchAlert(`Não foi possível preparar o ficheiro: ${error.message}`, true);
   }
@@ -943,10 +954,7 @@ async function copyWhatsAppContacts() {
   const contacts = verifiedContacts();
   if (!contacts.length) return;
 
-  const content = [
-    ["Nome de WhatsApp", "Número de WhatsApp"],
-    ...contacts.map((contact) => [contact.contactName, contact.phone]),
-  ].map((row) => row.join("\t")).join("\r\n");
+  const content = contacts.map((contact) => contact.phone).join("\n");
 
   try {
     let copied = false;
@@ -970,9 +978,197 @@ async function copyWhatsAppContacts() {
       textarea.remove();
       if (!copied) throw new Error("A área de transferência não está disponível.");
     }
-    showBatchAlert(`${contacts.length.toLocaleString("pt-PT")} contactos copiados. Pode colá-los onde quiser.`);
+    showBatchAlert(`${contacts.length.toLocaleString("pt-PT")} números copiados, sem nomes.`);
   } catch {
     showBatchAlert("Não foi possível copiar automaticamente. Permita o acesso à área de transferência e tente novamente.", true);
+  }
+}
+
+function openExportHistoryDatabase() {
+  if (!("indexedDB" in window)) {
+    return Promise.reject(new Error("Este navegador não suporta o histórico local de ficheiros."));
+  }
+  if (exportHistoryDbPromise) return exportHistoryDbPromise;
+
+  exportHistoryDbPromise = new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(EXPORT_HISTORY_DB, 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(EXPORT_HISTORY_STORE)) {
+        database.createObjectStore(EXPORT_HISTORY_STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => {
+      const database = request.result;
+      database.onversionchange = () => database.close();
+      resolve(database);
+    };
+    request.onerror = () => {
+      exportHistoryDbPromise = null;
+      reject(request.error || new Error("Não foi possível abrir o histórico local."));
+    };
+    request.onblocked = () => {
+      exportHistoryDbPromise = null;
+      reject(new Error("Feche outras páginas do ContactoCheck e tente novamente."));
+    };
+  });
+
+  return exportHistoryDbPromise;
+}
+
+function historyId() {
+  return typeof window.crypto?.randomUUID === "function"
+    ? window.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function saveExportHistory(file, contactCount, sourceName) {
+  const database = await openExportHistoryDatabase();
+  const record = {
+    id: historyId(),
+    fileName: file.fileName,
+    sourceName,
+    format: file.fileName.split(".").pop().toLowerCase(),
+    contactCount,
+    createdAt: Date.now(),
+    blob: file.blob,
+  };
+
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(EXPORT_HISTORY_STORE, "readwrite");
+    transaction.objectStore(EXPORT_HISTORY_STORE).add(record);
+    transaction.oncomplete = () => resolve(record);
+    transaction.onerror = () => reject(transaction.error || new Error("Não foi possível guardar o ficheiro."));
+    transaction.onabort = () => reject(transaction.error || new Error("A gravação do ficheiro foi interrompida."));
+  });
+}
+
+async function getExportHistory() {
+  const database = await openExportHistoryDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(EXPORT_HISTORY_STORE, "readonly");
+    const request = transaction.objectStore(EXPORT_HISTORY_STORE).getAll();
+    let files = [];
+    request.onsuccess = () => {
+      files = Array.isArray(request.result) ? request.result : [];
+    };
+    transaction.oncomplete = () => {
+      files.sort((left, right) => right.createdAt - left.createdAt);
+      resolve(files);
+    };
+    transaction.onerror = () => reject(transaction.error || new Error("Não foi possível ler o histórico local."));
+    request.onerror = () => reject(request.error || new Error("Não foi possível ler o histórico local."));
+  });
+}
+
+async function deleteExportHistoryFile(id) {
+  const database = await openExportHistoryDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(EXPORT_HISTORY_STORE, "readwrite");
+    transaction.objectStore(EXPORT_HISTORY_STORE).delete(id);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error("Não foi possível apagar o ficheiro."));
+    transaction.onabort = () => reject(transaction.error || new Error("A eliminação do ficheiro foi interrompida."));
+  });
+}
+
+async function clearExportHistory() {
+  const database = await openExportHistoryDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(EXPORT_HISTORY_STORE, "readwrite");
+    transaction.objectStore(EXPORT_HISTORY_STORE).clear();
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error("Não foi possível apagar o histórico."));
+    transaction.onabort = () => reject(transaction.error || new Error("A eliminação do histórico foi interrompida."));
+  });
+}
+
+function setHistoryStatus(message, isError = false) {
+  elements.historyStatus.textContent = message;
+  elements.historyStatus.classList.toggle("is-error", isError);
+}
+
+function triggerBlobDownload(fileName, blob) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function renderExportHistory(announcement = "") {
+  elements.historyList.replaceChildren();
+  try {
+    const files = await getExportHistory();
+    elements.clearHistoryButton.disabled = files.length === 0;
+    setHistoryStatus(announcement || (
+      files.length
+        ? `${files.length.toLocaleString("pt-PT")} ficheiros com WhatsApp guardados neste navegador.`
+        : "Ainda não foram gerados ficheiros com contactos confirmados."
+    ));
+
+    files.forEach((file) => {
+      const item = document.createElement("article");
+      item.className = "history-item";
+      const info = document.createElement("div");
+      info.className = "history-file-info";
+      const name = document.createElement("strong");
+      name.className = "history-file-name";
+      name.textContent = file.fileName;
+      const details = document.createElement("span");
+      details.className = "history-file-details";
+      details.textContent = `${Number(file.contactCount).toLocaleString("pt-PT")} números com WhatsApp · ${String(file.format).toUpperCase()} · ${new Date(file.createdAt).toLocaleString("pt-PT")}`;
+      info.append(name, details);
+
+      if (file.sourceName) {
+        const source = document.createElement("span");
+        source.className = "history-file-source";
+        source.textContent = `Origem: ${file.sourceName}`;
+        info.append(source);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "history-item-actions";
+      const downloadButton = document.createElement("button");
+      downloadButton.className = "button button-outline history-action";
+      downloadButton.type = "button";
+      downloadButton.textContent = "Baixar novamente";
+      downloadButton.addEventListener("click", () => {
+        try {
+          triggerBlobDownload(file.fileName, file.blob);
+        } catch {
+          setHistoryStatus("Não foi possível descarregar este ficheiro do histórico.", true);
+        }
+      });
+
+      const deleteButton = document.createElement("button");
+      deleteButton.className = "button button-quiet history-action history-delete";
+      deleteButton.type = "button";
+      deleteButton.textContent = "Apagar";
+      deleteButton.setAttribute("aria-label", `Apagar ${file.fileName}`);
+      deleteButton.addEventListener("click", async () => {
+        deleteButton.disabled = true;
+        try {
+          await deleteExportHistoryFile(file.id);
+          await renderExportHistory(`${file.fileName} foi removido do histórico.`);
+        } catch {
+          deleteButton.disabled = false;
+          setHistoryStatus("Não foi possível apagar este ficheiro do histórico.", true);
+        }
+      });
+      actions.append(downloadButton, deleteButton);
+      item.append(info, actions);
+      elements.historyList.append(item);
+    });
+  } catch (error) {
+    elements.clearHistoryButton.disabled = true;
+    setHistoryStatus(
+      `O histórico local não está disponível. ${error.message}`,
+      true,
+    );
   }
 }
 
@@ -1021,5 +1217,17 @@ elements.exportValidButton.addEventListener("click", downloadWhatsAppFile);
 elements.copyValidButton.addEventListener("click", copyWhatsAppContacts);
 elements.exportInvalidButton.addEventListener("click", () => downloadCsv("invalid"));
 elements.exportAllButton.addEventListener("click", () => downloadCsv("all"));
+elements.clearHistoryButton.addEventListener("click", async () => {
+  if (!window.confirm("Apagar todos os ficheiros guardados neste navegador?")) return;
+  elements.clearHistoryButton.disabled = true;
+  try {
+    await clearExportHistory();
+    await renderExportHistory("O histórico local foi apagado.");
+  } catch {
+    elements.clearHistoryButton.disabled = false;
+    setHistoryStatus("Não foi possível apagar o histórico local.", true);
+  }
+});
 
+void renderExportHistory();
 refreshHealth();

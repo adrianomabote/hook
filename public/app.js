@@ -1,5 +1,5 @@
 const MAX_UNIQUE_PER_RUN = 250_000;
-const PROVIDER_BATCH_SIZE = 1500;
+const PROVIDER_BATCH_SIZE = 50_000;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_PREVIEW_ROWS = 12;
 let xlsxLibraryPromise = null;
@@ -347,7 +347,7 @@ function updateBatchButton() {
     : "Verificar lista";
 
   if (!state.tokenConfigured) {
-    elements.batchButtonHint.textContent = "Adicione o Secret WHAPI_TOKEN para ativar.";
+    elements.batchButtonHint.textContent = "Adicione os secrets ZAPI_INSTANCE_ID e ZAPI_TOKEN para ativar.";
   } else if (!hasData) {
     elements.batchButtonHint.textContent = "Importe CSV, TXT ou Excel, ou cole uma lista de números.";
   } else {

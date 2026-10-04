@@ -11,10 +11,12 @@ const XLSX_BUNDLE_PATH = path.join(
   "dist",
   "xlsx.full.min.js",
 );
-const WHAPI_URL = "https://gate.whapi.cloud/contacts";
-const PROVIDER_BATCH_SIZE = 1500;
+const ZAPI_BASE_URL = "https://api.z-api.io/instances";
+const PROVIDER_BATCH_SIZE = 50_000;
+const MAX_SYNCHRONOUS_NUMBERS = 1500;
 const MAX_NUMBERS_PER_CONSULTATION = 250_000;
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
+const PROVIDER_TIMEOUT_MS = 60_000;
 const RATE_WINDOW_MS = 60 * 1000;
 const MAX_REQUESTS_PER_WINDOW = 30;
 const MAX_ACTIVE_JOBS_PER_ADDRESS = 1;
@@ -96,16 +98,22 @@ function digitsOnly(value) {
 
 function providerErrorMessage(statusCode) {
   if (statusCode === 401) {
-    return "O token foi recusado ou o canal WhatsApp ainda não está autorizado.";
+    return "A Z-API recusou as credenciais. Confira o ID e o token da instância e, se estiver ativo, o token de segurança da conta.";
   }
   if (statusCode === 402) {
-    return "O Whapi.Cloud recusou a consulta porque a quota do plano foi atingida. Este limite é do serviço externo; os números sem resposta continuam não confirmados. Renove a quota ou aguarde a reposição do limite no Whapi.Cloud.";
+    return "A Z-API recusou a consulta por quota ou limite do plano. Verifique o limite da conta; números sem resposta continuam não confirmados.";
+  }
+  if (statusCode === 403) {
+    return "A Z-API não autorizou esta consulta. Confira o estado e as permissões da instância.";
+  }
+  if (statusCode === 404) {
+    return "A instância ou rota da Z-API não foi encontrada. Confira o ID da instância.";
   }
   if (statusCode === 429) {
-    return "O serviço limitou temporariamente as consultas. Aguarde e tente novamente.";
+    return "A Z-API limitou temporariamente as consultas. Aguarde e tente novamente.";
   }
   if (statusCode === 400) {
-    return "O serviço rejeitou os parâmetros enviados. Confira o formato internacional dos números.";
+    return "A Z-API rejeitou os parâmetros. Confira se os números estão no formato internacional.";
   }
   return `O serviço não concluiu a consulta (HTTP ${statusCode}).`;
 }
@@ -116,20 +124,26 @@ function wait(milliseconds) {
 
 async function requestProviderContacts(phones) {
   const maxAttempts = 3;
+  const instanceId = encodeURIComponent(process.env.ZAPI_INSTANCE_ID);
+  const token = encodeURIComponent(process.env.ZAPI_TOKEN);
+  const endpoint = `${ZAPI_BASE_URL}/${instanceId}/token/${token}/phone-exists-batch`;
+  const headers = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  if (process.env.ZAPI_CLIENT_TOKEN) {
+    headers["Client-Token"] = process.env.ZAPI_CLIENT_TOKEN;
+  }
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     let providerResponse;
 
     try {
-      providerResponse = await fetch(WHAPI_URL, {
+      providerResponse = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${process.env.WHAPI_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ contacts: phones }),
-        signal: AbortSignal.timeout(20_000),
+        headers,
+        body: JSON.stringify({ phones: phones.map(digitsOnly) }),
+        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       });
     } catch (error) {
       if (attempt + 1 === maxAttempts) {
@@ -165,18 +179,19 @@ async function requestProviderContacts(phones) {
       throw new Error("O serviço devolveu uma resposta que não pôde ser interpretada.");
     }
 
-    if (!Array.isArray(data.contacts)) {
-      throw new Error("A resposta do serviço não contém a lista de resultados esperada.");
+    if (!Array.isArray(data)) {
+      throw new Error("A resposta da Z-API não contém a lista de resultados esperada.");
     }
 
-    const resultByNumber = new Map(
-      data.contacts.map((contact) => [
-        digitsOnly(contact.input),
-        contact.status === "valid" || contact.status === "invalid"
-          ? contact.status
-          : "unknown",
-      ]),
-    );
+    const resultByNumber = new Map();
+    for (const contact of data) {
+      const inputPhone = contact?.inputPhone ?? contact?.phone ?? contact?.outputPhone;
+      if (typeof inputPhone !== "string" || !digitsOnly(inputPhone)) continue;
+      const status = typeof contact.exists === "boolean"
+        ? contact.exists ? "valid" : "invalid"
+        : "unknown";
+      resultByNumber.set(digitsOnly(inputPhone), status);
+    }
 
     return phones.map((phone) => ({
       phone,
@@ -225,11 +240,12 @@ async function processCheckJob(job) {
 }
 
 async function checkPhones(request, response) {
-  const token = process.env.WHAPI_TOKEN;
-  if (!token) {
+  const instanceId = process.env.ZAPI_INSTANCE_ID;
+  const token = process.env.ZAPI_TOKEN;
+  if (!instanceId || !token) {
     sendJson(response, 503, {
-      code: "missing_token",
-      error: "Adicione o secret WHAPI_TOKEN para ativar as consultas.",
+      code: "missing_credentials",
+      error: "Adicione os secrets ZAPI_INSTANCE_ID e ZAPI_TOKEN para ativar as consultas.",
     });
     return;
   }
@@ -279,7 +295,7 @@ async function checkPhones(request, response) {
     return;
   }
 
-  if (phones.length > PROVIDER_BATCH_SIZE) {
+  if (phones.length > MAX_SYNCHRONOUS_NUMBERS) {
     removeExpiredCheckJobs();
     const address = clientAddress(request);
     const hasActiveJob = [...checkJobs.values()].some((job) => (
@@ -392,8 +408,8 @@ const server = http.createServer((request, response) => {
 
   if (url.pathname === "/api/health" && request.method === "GET") {
     sendJson(response, 200, {
-      provider: "Whapi.Cloud",
-      tokenConfigured: Boolean(process.env.WHAPI_TOKEN),
+      provider: "Z-API",
+      tokenConfigured: Boolean(process.env.ZAPI_INSTANCE_ID && process.env.ZAPI_TOKEN),
       maxNumbersPerConsultation: MAX_NUMBERS_PER_CONSULTATION,
       providerBatchSize: PROVIDER_BATCH_SIZE,
     });

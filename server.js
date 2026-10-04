@@ -120,7 +120,7 @@ function providerErrorMessage(statusCode, providerMessage = "") {
     if (/phone|number|telefone|número/.test(normalizedMessage)) {
       return "A Z-API rejeitou o formato do número enviado.";
     }
-    return "A Z-API rejeitou os parâmetros. Confira se os números estão no formato internacional.";
+    return "A Z-API rejeitou a requisição. Confira o ID e token da instância e o token de segurança da conta.";
   }
   return `O serviço não concluiu a consulta (HTTP ${statusCode}).`;
 }

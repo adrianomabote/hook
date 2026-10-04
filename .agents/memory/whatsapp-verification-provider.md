@@ -9,11 +9,11 @@ The official WhatsApp Cloud API does not document a general silent lookup for ar
 
 **How to apply:** Keep requests on Z-API's phone-existence endpoints. Never use a messaging endpoint or change the no-message behavior without asking.
 
-Z-API documents a maximum of 50,000 numbers per batch request. This API limit does not establish the user's plan quota or prove that a 250,000-number run will complete successfully.
+Z-API documents a maximum of 50,000 numbers per batch request. ContactoCheck's maximum is also 50,000 unique numbers per verification; users divide larger lists manually.
 
-**Why:** The user wants to verify lists over 100,000 numbers in one run, but account-specific limits and large-job throughput still require a live test.
+**Why:** The user explicitly chose a 50,000-number cap per verification instead of automatically splitting larger lists.
 
-**How to apply:** Keep the client and server batch sizes aligned. Preserve the 250,000 unique-number run limit, show progress and provider errors, and leave unreturned numbers unconfirmed instead of marking them valid.
+**How to apply:** Keep the client limit, server limit, and provider batch size aligned at 50,000. Larger lists must be divided into separate verifications; do not raise the limit or auto-split them without asking.
 
 ## Interpreting provider errors
 

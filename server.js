@@ -187,7 +187,7 @@ async function requestProviderContacts(phones) {
     for (const contact of data) {
       const inputPhone = contact?.inputPhone ?? contact?.phone ?? contact?.outputPhone;
       if (typeof inputPhone !== "string" || !digitsOnly(inputPhone)) continue;
-      const status = typeof contact.exists === "boolean"
+      const status = typeof contact?.exists === "boolean"
         ? contact.exists ? "valid" : "invalid"
         : "unknown";
       resultByNumber.set(digitsOnly(inputPhone), status);

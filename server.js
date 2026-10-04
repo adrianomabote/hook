@@ -140,8 +140,8 @@ async function requestProviderContacts(phones) {
   const endpoint = `${ZAPI_BASE_URL}/${instanceId}/token/${token}${phonePath}`;
   const headers = {
     Accept: "application/json",
+    "Content-Type": "application/json",
   };
-  if (!isSinglePhone) headers["Content-Type"] = "application/json";
   if (process.env.ZAPI_CLIENT_TOKEN) {
     headers["Client-Token"] = process.env.ZAPI_CLIENT_TOKEN;
   }

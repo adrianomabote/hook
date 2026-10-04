@@ -163,7 +163,8 @@ function parseDelimitedText(text) {
 
 function parsePastedContacts(text) {
   const cleaned = String(text || "").replace(/^\uFEFF/, "");
-  if (!/[,;\t"]/.test(cleaned)) {
+  const firstLine = cleaned.split(/\r\n?|\n/).find((line) => line.trim()) || "";
+  if (!/[,;\t]/.test(firstLine)) {
     const rows = [];
     for (const line of cleaned.split(/\r\n?|\n/)) {
       const phone = line.trim();

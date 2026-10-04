@@ -96,7 +96,8 @@ function digitsOnly(value) {
   return String(value || "").replace(/\D/g, "");
 }
 
-function providerErrorMessage(statusCode) {
+function providerErrorMessage(statusCode, providerMessage = "") {
+  const normalizedMessage = providerMessage.toLowerCase();
   if (statusCode === 401) {
     return "A Z-API recusou as credenciais. Confira o ID e o token da instância e, se estiver ativo, o token de segurança da conta.";
   }
@@ -113,6 +114,12 @@ function providerErrorMessage(statusCode) {
     return "A Z-API limitou temporariamente as consultas. Aguarde e tente novamente.";
   }
   if (statusCode === 400) {
+    if (normalizedMessage.includes("null not allowed")) {
+      return "A Z-API exige o token de segurança da conta. Confira o secret ZAPI_CLIENT_TOKEN.";
+    }
+    if (/phone|number|telefone|número/.test(normalizedMessage)) {
+      return "A Z-API rejeitou o formato do número enviado.";
+    }
     return "A Z-API rejeitou os parâmetros. Confira se os números estão no formato internacional.";
   }
   return `O serviço não concluiu a consulta (HTTP ${statusCode}).`;
@@ -126,11 +133,15 @@ async function requestProviderContacts(phones) {
   const maxAttempts = 3;
   const instanceId = encodeURIComponent(process.env.ZAPI_INSTANCE_ID);
   const token = encodeURIComponent(process.env.ZAPI_TOKEN);
-  const endpoint = `${ZAPI_BASE_URL}/${instanceId}/token/${token}/phone-exists-batch`;
+  const isSinglePhone = phones.length === 1;
+  const phonePath = isSinglePhone
+    ? `/phone-exists/${encodeURIComponent(digitsOnly(phones[0]))}`
+    : "/phone-exists-batch";
+  const endpoint = `${ZAPI_BASE_URL}/${instanceId}/token/${token}${phonePath}`;
   const headers = {
     Accept: "application/json",
-    "Content-Type": "application/json",
   };
+  if (!isSinglePhone) headers["Content-Type"] = "application/json";
   if (process.env.ZAPI_CLIENT_TOKEN) {
     headers["Client-Token"] = process.env.ZAPI_CLIENT_TOKEN;
   }
@@ -140,9 +151,9 @@ async function requestProviderContacts(phones) {
 
     try {
       providerResponse = await fetch(endpoint, {
-        method: "POST",
+        method: isSinglePhone ? "GET" : "POST",
         headers,
-        body: JSON.stringify({ phones: phones.map(digitsOnly) }),
+        ...(isSinglePhone ? {} : { body: JSON.stringify({ phones: phones.map(digitsOnly) }) }),
         signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       });
     } catch (error) {
@@ -167,7 +178,15 @@ async function requestProviderContacts(phones) {
     }
 
     if (!providerResponse.ok) {
-      const error = new Error(providerErrorMessage(providerResponse.status));
+      let providerMessage = "";
+      try {
+        const errorBody = await providerResponse.clone().json();
+        if (typeof errorBody?.error === "string") providerMessage = errorBody.error;
+        else if (typeof errorBody?.message === "string") providerMessage = errorBody.message;
+      } catch {
+        // Keep upstream error bodies out of logs and user-facing responses.
+      }
+      const error = new Error(providerErrorMessage(providerResponse.status, providerMessage));
       error.providerStatus = providerResponse.status;
       throw error;
     }

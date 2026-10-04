@@ -161,6 +161,20 @@ function parseDelimitedText(text) {
   return { rows, delimiter: separator };
 }
 
+function parsePastedContacts(text) {
+  const cleaned = String(text || "").replace(/^\uFEFF/, "");
+  if (!/[,;\t"]/.test(cleaned)) {
+    const rows = [];
+    for (const line of cleaned.split(/\r\n?|\n/)) {
+      const phone = line.trim();
+      if (phone) rows.push([phone]);
+    }
+    return { rows, delimiter: ",", simple: true };
+  }
+
+  return { ...parseDelimitedText(cleaned), simple: false };
+}
+
 function loadSpreadsheetLibrary() {
   if (window.XLSX) return Promise.resolve(window.XLSX);
   if (xlsxLibraryPromise) return xlsxLibraryPromise;
@@ -273,12 +287,15 @@ function createImport(rows, fileName, options = {}) {
     sheetName: options.sheetName || "Contactos",
     rawRows: rows,
     headers,
+    fastSimplePaste: Boolean(options.fastSimplePaste),
     headerDetected: hasHeader,
     hasHeader,
     detectedPhoneColumn: hasHeader ? detectedPhoneColumn : 0,
-    phoneColumn: hasHeader
-      ? detectedPhoneColumn
-      : choosePhoneColumn(rows, false, elements.batchCountry, elements.batchCustomDial),
+    phoneColumn: options.fastSimplePaste
+      ? 0
+      : hasHeader
+        ? detectedPhoneColumn
+        : choosePhoneColumn(rows, false, elements.batchCountry, elements.batchCustomDial),
   };
 
   state.imported = importState;
@@ -334,6 +351,15 @@ function buildRecords() {
 
 function updateImportPreview() {
   if (!state.imported) return;
+  if (state.imported.fastSimplePaste) {
+    const pastedCount = activeRows().length;
+    elements.fileCount.textContent = `${pastedCount.toLocaleString("pt-PT")} contactos`;
+    elements.previewTitle.textContent = `${pastedCount.toLocaleString("pt-PT")} contactos colados`;
+    elements.previewDetails.textContent = "Lista pronta. O formato dos números será confirmado ao iniciar a consulta.";
+    updateBatchButton();
+    return;
+  }
+
   const records = buildRecords();
   const readyCount = records.filter((record) => record.phone).length;
   const invalidCount = records.length - readyCount;
@@ -626,7 +652,7 @@ elements.dropzone.addEventListener("drop", (event) => {
 });
 
 elements.loadPasteButton.addEventListener("click", () => {
-  const pasted = parseDelimitedText(elements.pasteInput.value);
+  const pasted = parsePastedContacts(elements.pasteInput.value);
   if (!pasted.rows.length) {
     showBatchAlert("Cole pelo menos um número, um por linha.", true);
     return;
@@ -634,6 +660,7 @@ elements.loadPasteButton.addEventListener("click", () => {
   importRows(pasted.rows, "Lista colada", {
     fileType: "txt",
     delimiter: pasted.delimiter,
+    fastSimplePaste: pasted.simple,
   });
 });
 

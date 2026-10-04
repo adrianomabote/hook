@@ -528,6 +528,11 @@ h1 span {
   background: #eef8f2;
 }
 
+.dropzone.is-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .drop-icon {
   width: 39px;
   height: 39px;
@@ -780,6 +785,17 @@ h1 span {
 
 .batch-actions .field-hint {
   text-align: center;
+}
+
+.session-hint {
+  padding: 10px 12px;
+  margin-top: 12px;
+  border: 1px solid #dcebe1;
+  border-radius: 9px;
+  color: #41604d;
+  background: #f2f8f4;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .progress-wrap {
@@ -1042,6 +1058,31 @@ h1 span {
 
 .results-heading h2 {
   font-size: 21px;
+}
+
+.session-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  border: 1px solid #dcebe1;
+  border-radius: 10px;
+  background: #f6faf7;
+}
+
+.session-controls p {
+  margin: 0;
+  color: #52665a;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.session-controls > div {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
 }
 
 .export-actions {
@@ -1443,6 +1484,15 @@ td:first-child {
     min-height: 36px;
     padding: 0 8px;
     font-size: 10px;
+  }
+
+  .session-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .session-controls > div {
+    flex-direction: column;
   }
 
   .summary-grid {

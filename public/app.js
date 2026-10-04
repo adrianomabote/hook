@@ -1192,8 +1192,6 @@ function downloadCsv(filter) {
   });
   const content = `\uFEFF${[headers, ...dataRows].map((row) => row.map(csvCell).join(";")).join("\r\n")}`;
   const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
   const baseName = state.imported.fileName
     .replace(/\.[^.]+$/, "")
     .replace(/[^a-z0-9_-]+/gi, "-")
@@ -1205,12 +1203,18 @@ function downloadCsv(filter) {
       : filter === "all"
         ? "resultados"
         : "nao-confirmados";
-  anchor.href = url;
-  anchor.download = `${baseName}-${suffix}.csv`;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+  const fileName = `${baseName}-${suffix}.csv`;
+  triggerBlobDownload(fileName, blob);
+
+  const confirmedCount = rows.filter((row) => row.status === "valid").length;
+  if (confirmedCount > 0) {
+    void saveExportHistory({ fileName, blob }, confirmedCount, state.imported.fileName)
+      .then(() => renderExportHistory(`${fileName} foi guardado no histórico deste navegador.`))
+      .catch(() => setHistoryStatus(
+        "O ficheiro foi descarregado, mas não foi possível guardá-lo no histórico local.",
+        true,
+      ));
+  }
 }
 
 elements.exportValidButton.addEventListener("click", downloadWhatsAppFile);

@@ -96,8 +96,45 @@ function digitsOnly(value) {
   return String(value || "").replace(/\D/g, "");
 }
 
+function safeProviderMessage(message) {
+  let safeMessage = typeof message === "string" ? message.replace(/\s+/g, " ").trim() : "";
+  if (!safeMessage) return "";
+
+  for (const secret of [
+    process.env.ZAPI_INSTANCE_ID,
+    process.env.ZAPI_TOKEN,
+    process.env.ZAPI_CLIENT_TOKEN,
+  ]) {
+    if (typeof secret === "string" && secret) {
+      safeMessage = safeMessage.split(secret).join("[valor oculto]");
+    }
+  }
+
+  return safeMessage
+    .replace(/https?:\/\/\S+/gi, "[URL oculto]")
+    .replace(/\+?\d(?:[\s().-]*\d){7,14}/g, "[número oculto]")
+    .replace(/\b[A-Za-z0-9_-]{24,}\b/g, "[valor oculto]")
+    .slice(0, 240);
+}
+
+function extractProviderMessage(errorBody) {
+  if (typeof errorBody === "string") return errorBody;
+  if (!errorBody || typeof errorBody !== "object") return "";
+
+  const fields = [
+    errorBody.message,
+    errorBody.error,
+    errorBody.detail,
+    errorBody.error_description,
+    errorBody.description,
+    errorBody.code,
+  ];
+  return fields.find((value) => typeof value === "string" && value.trim()) || "";
+}
+
 function providerErrorMessage(statusCode, providerMessage = "") {
-  const normalizedMessage = providerMessage.toLowerCase();
+  const safeMessage = safeProviderMessage(providerMessage);
+  const normalizedMessage = safeMessage.toLowerCase();
   if (statusCode === 401) {
     return "A Z-API recusou as credenciais. Confira o ID e o token da instância e, se estiver ativo, o token de segurança da conta.";
   }
@@ -119,6 +156,9 @@ function providerErrorMessage(statusCode, providerMessage = "") {
     }
     if (/phone|number|telefone|número/.test(normalizedMessage)) {
       return "A Z-API rejeitou o formato do número enviado.";
+    }
+    if (safeMessage) {
+      return `A Z-API rejeitou a requisição: ${safeMessage}`;
     }
     return "A Z-API rejeitou a requisição. Confira o ID e token da instância e o token de segurança da conta.";
   }
@@ -180,9 +220,14 @@ async function requestProviderContacts(phones) {
     if (!providerResponse.ok) {
       let providerMessage = "";
       try {
-        const errorBody = await providerResponse.clone().json();
-        if (typeof errorBody?.error === "string") providerMessage = errorBody.error;
-        else if (typeof errorBody?.message === "string") providerMessage = errorBody.message;
+        const responseText = await providerResponse.clone().text();
+        let errorBody = responseText;
+        try {
+          errorBody = JSON.parse(responseText);
+        } catch {
+          // Keep a plain-text provider error available for safe sanitization.
+        }
+        providerMessage = extractProviderMessage(errorBody);
       } catch {
         // Keep upstream error bodies out of logs and user-facing responses.
       }

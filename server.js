@@ -249,6 +249,16 @@ async function requestProviderContacts(phones) {
       throw new Error("O serviço devolveu uma resposta que não pôde ser interpretada.");
     }
 
+    if (
+      isSinglePhone &&
+      data &&
+      typeof data === "object" &&
+      !Array.isArray(data) &&
+      typeof data.exists === "boolean"
+    ) {
+      data = [data];
+    }
+
     if (!Array.isArray(data)) {
       throw new Error("A resposta da Z-API não contém a lista de resultados esperada.");
     }
@@ -256,11 +266,16 @@ async function requestProviderContacts(phones) {
     const resultByNumber = new Map();
     for (const contact of data) {
       const inputPhone = contact?.inputPhone ?? contact?.phone ?? contact?.outputPhone;
-      if (typeof inputPhone !== "string" || !digitsOnly(inputPhone)) continue;
+      const resultPhone = typeof inputPhone === "string" && digitsOnly(inputPhone)
+        ? digitsOnly(inputPhone)
+        : isSinglePhone && typeof contact?.exists === "boolean"
+          ? digitsOnly(phones[0])
+          : "";
+      if (!resultPhone) continue;
       const status = typeof contact?.exists === "boolean"
         ? contact.exists ? "valid" : "invalid"
         : "unknown";
-      resultByNumber.set(digitsOnly(inputPhone), status);
+      resultByNumber.set(resultPhone, status);
     }
 
     return phones.map((phone) => ({

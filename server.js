@@ -723,6 +723,11 @@ function serveStatic(request, response, pathname) {
 const server = http.createServer((request, response) => {
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
 
+  if (url.pathname === "/healthz" && request.method === "GET") {
+    sendJson(response, 200, { status: "ok" });
+    return;
+  }
+
   if (url.pathname === "/api/auth/login") {
     if (request.method === "POST") {
       void handleLogin(request, response);

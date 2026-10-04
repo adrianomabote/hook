@@ -19,7 +19,7 @@ const XLSX_BUNDLE_PATH = path.join(
 const ZAPI_BASE_URL = "https://api.z-api.io/instances";
 const PROVIDER_BATCH_SIZE = 50_000;
 const MAX_SYNCHRONOUS_NUMBERS = 1500;
-const MAX_NUMBERS_PER_CONSULTATION = 250_000;
+const MAX_NUMBERS_PER_CONSULTATION = 50_000;
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const PROVIDER_TIMEOUT_MS = 60_000;
 const RATE_WINDOW_MS = 60 * 1000;
@@ -607,7 +607,7 @@ async function checkPhones(request, response) {
   if (phones.length > MAX_NUMBERS_PER_CONSULTATION) {
     sendJson(response, 413, {
       code: "consultation_too_large",
-      error: `Consulte no máximo ${MAX_NUMBERS_PER_CONSULTATION.toLocaleString("pt-PT")} números únicos por verificação.`,
+      error: `O limite é ${MAX_NUMBERS_PER_CONSULTATION.toLocaleString("pt-PT")} números únicos por verificação. Divida a lista em verificações menores.`,
     });
     return;
   }

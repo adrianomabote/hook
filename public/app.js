@@ -1,4 +1,4 @@
-const MAX_UNIQUE_PER_RUN = 250_000;
+const MAX_UNIQUE_PER_RUN = 50_000;
 const PROVIDER_BATCH_SIZE = 50_000;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_PREVIEW_ROWS = 12;
@@ -697,7 +697,7 @@ async function runBatchCheck() {
   }
   if (uniquePhones.length > MAX_UNIQUE_PER_RUN) {
     showBatchAlert(
-      `Esta lista tem ${uniquePhones.length.toLocaleString("pt-PT")} números únicos. O limite por verificação é ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")}.`,
+      `Esta lista tem ${uniquePhones.length.toLocaleString("pt-PT")} números únicos. O limite por verificação é ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")}. Divida a lista em partes menores.`,
       true,
     );
     return;

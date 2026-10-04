@@ -14,3 +14,11 @@ Z-API documents a maximum of 50,000 numbers per batch request. This API limit do
 **Why:** The user wants to verify lists over 100,000 numbers in one run, but account-specific limits and large-job throughput still require a live test.
 
 **How to apply:** Keep the client and server batch sizes aligned. Preserve the 250,000 unique-number run limit, show progress and provider errors, and leave unreturned numbers unconfirmed instead of marking them valid.
+
+## Interpreting provider errors
+
+An upstream HTTP 400 from a silent Z-API check does not establish that the phone number is invalid. Credential or instance lookup failures can also arrive as 400 responses; use the sanitized provider message to distinguish them.
+
+**Why:** During setup, correcting the account Client-Token changed the provider response from a Client-Token configuration error to `Instance not found`, while the number itself was unchanged.
+
+**How to apply:** Stop repeated or bulk checks after a 400. Surface only sanitized provider details, verify the account token and matching active instance credentials, then retry only after a configuration change.

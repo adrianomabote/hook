@@ -173,7 +173,21 @@ function parsePastedContacts(text) {
     return { rows, delimiter: ",", simple: true };
   }
 
-  return { ...parseDelimitedText(cleaned), simple: false };
+  const parsed = parseDelimitedText(cleaned);
+  const cells = parsed.rows.flatMap((row) => row.filter((cell) => cell.trim()));
+  const isPhoneLike = (value) => (
+    /\d/.test(value) && /^[+\d\s()./-]+$/.test(value.trim())
+  );
+
+  if (parsed.rows.length === 1 && cells.length > 1 && cells.every(isPhoneLike)) {
+    return {
+      rows: cells.map((phone) => [phone]),
+      delimiter: parsed.delimiter,
+      simple: true,
+    };
+  }
+
+  return { ...parsed, simple: false };
 }
 
 function loadSpreadsheetLibrary() {

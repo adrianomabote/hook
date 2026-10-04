@@ -151,6 +151,12 @@ function providerErrorMessage(statusCode, providerMessage = "") {
     return "A Z-API limitou temporariamente as consultas. Aguarde e tente novamente.";
   }
   if (statusCode === 400) {
+    if (/client-token.*not configured/.test(normalizedMessage)) {
+      return "A Z-API informa que o Token de Segurança da Conta não está configurado. Confirme a activação no painel e que ZAPI_CLIENT_TOKEN corresponde ao token activo.";
+    }
+    if (/instance not found/.test(normalizedMessage)) {
+      return "A Z-API não encontrou a instância. Confirme que o ID e o token actuais pertencem à mesma instância activa e que ambos foram guardados no Replit.";
+    }
     if (normalizedMessage.includes("null not allowed")) {
       return "A Z-API exige o token de segurança da conta. Confira o secret ZAPI_CLIENT_TOKEN.";
     }

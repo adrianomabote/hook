@@ -366,9 +366,14 @@ function activeRows() {
 function buildRecords() {
   if (!state.imported) return [];
   const rows = activeRows();
-  const sourceHeaders = state.imported.hasHeader
-    ? state.imported.rawRows[0].map((cell, index) => cell.trim() || `Coluna ${index + 1}`)
-    : state.imported.headers;
+  const columnCount = state.imported.rawRows.reduce(
+    (largest, row) => Math.max(largest, row.length),
+    1,
+  );
+  const headerRow = state.imported.hasHeader ? state.imported.rawRows[0] : [];
+  const sourceHeaders = Array.from({ length: columnCount }, (_, index) => (
+    String(headerRow[index] || "").trim() || `Coluna ${index + 1}`
+  ));
   return rows.map((cells, index) => {
     const raw = String(cells[state.imported.phoneColumn] || "").trim();
     const normalized = normalizePhone(raw, elements.batchCountry, elements.batchCustomDial);
@@ -1345,6 +1350,13 @@ async function renderExportHistory(announcement = "") {
 function downloadCsv(filter, options = {}) {
   const rows = state.results.filter((row) => filter === "all" || row.status === filter);
   if (!rows.length) return false;
+  if (
+    filter === "all"
+    && !options.includeUnknown
+    && rows.some((row) => !["valid", "invalid", "invalid_format"].includes(row.status))
+  ) {
+    return false;
+  }
 
   const sourceColumns = combinedSourceColumns(rows);
   const headers = [

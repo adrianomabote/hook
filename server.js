@@ -128,7 +128,7 @@ function sendLoginPage(request, response, status = 200, message = "") {
          <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
          <button type="submit">Entrar</button>
        </form>`
-    : `<p class="notice" role="alert">O acesso ainda não está configurado. Adicione o secret <strong>SITE_PASSWORD</strong> nas variáveis secretas do projecto.</p>`;
+    : `<p class="notice" role="alert">O acesso ainda não está configurado. Configure <strong>SITE_PASSWORD</strong> e <strong>SESSION_SECRET</strong> nas variáveis de ambiente do serviço e reinicie-o.</p>`;
   const page = `<!doctype html>
 <html lang="pt">
   <head>
@@ -752,7 +752,7 @@ const server = http.createServer((request, response) => {
         code: "authentication_required",
         error: isSiteAuthConfigured()
           ? "Introduza a palavra-passe para continuar."
-          : "O acesso ainda não está configurado. Adicione o secret SITE_PASSWORD.",
+          : "O acesso ainda não está configurado. Configure SITE_PASSWORD e SESSION_SECRET nas variáveis de ambiente do serviço e reinicie-o.",
       });
     } else if (request.method === "GET" || request.method === "HEAD") {
       sendLoginPage(request, response);

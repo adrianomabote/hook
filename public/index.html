@@ -160,6 +160,7 @@
               <div class="progress-track"><span id="progressBar"></span></div>
             </div>
             <div class="inline-alert" id="batchAlert" role="status" hidden></div>
+            <div class="session-hint" id="batchSessionHint" hidden></div>
           </section>
 
           <div class="card-footnote">
@@ -186,6 +187,13 @@
             <button class="button button-outline" id="copyValidButton" type="button" aria-label="Copiar apenas os números confirmados" disabled>Copiar números</button>
             <button class="button button-outline" id="exportInvalidButton" type="button">↓ Sem WhatsApp</button>
             <button class="button button-quiet" id="exportAllButton" type="button">Exportar tudo</button>
+          </div>
+        </div>
+        <div class="session-controls" id="sessionControls" hidden>
+          <p id="sessionStatus"></p>
+          <div>
+            <button class="button button-primary" id="concludeSessionButton" type="button">Concluir e descarregar</button>
+            <button class="button button-outline" id="newSessionButton" type="button" hidden>Nova sessão</button>
           </div>
         </div>
         <div class="summary-grid">

@@ -42,6 +42,7 @@ const elements = {
   progressPercent: document.querySelector("#progressPercent"),
   progressBar: document.querySelector("#progressBar"),
   resultsSection: document.querySelector("#resultsSection"),
+  batchSessionHint: document.querySelector("#batchSessionHint"),
   validCount: document.querySelector("#validCount"),
   invalidCount: document.querySelector("#invalidCount"),
   formatCount: document.querySelector("#formatCount"),
@@ -55,6 +56,10 @@ const elements = {
   copyValidButton: document.querySelector("#copyValidButton"),
   exportInvalidButton: document.querySelector("#exportInvalidButton"),
   exportAllButton: document.querySelector("#exportAllButton"),
+  sessionControls: document.querySelector("#sessionControls"),
+  sessionStatus: document.querySelector("#sessionStatus"),
+  concludeSessionButton: document.querySelector("#concludeSessionButton"),
+  newSessionButton: document.querySelector("#newSessionButton"),
   historyStatus: document.querySelector("#historyStatus"),
   historyList: document.querySelector("#historyList"),
   clearHistoryButton: document.querySelector("#clearHistoryButton"),
@@ -70,6 +75,11 @@ const state = {
   imported: null,
   results: [],
   filter: "all",
+  session: {
+    started: false,
+    concluded: false,
+    checkedPhones: new Set(),
+  },
 };
 
 function getDialDigits(select, customInput) {
@@ -285,6 +295,14 @@ function choosePhoneColumn(rows, hasHeader, select, customInput) {
 }
 
 function createImport(rows, fileName, options = {}) {
+  if (state.session.concluded) {
+    showBatchAlert("Esta sessão foi concluída. Inicie uma nova sessão antes de importar outra lista.", true);
+    return;
+  }
+  if (state.checking) {
+    showBatchAlert("Aguarde que o lote atual termine antes de importar outra lista.", true);
+    return;
+  }
   if (!rows.length) {
     showBatchAlert("Não encontrei linhas com dados nesse ficheiro.", true);
     return;
@@ -314,7 +332,6 @@ function createImport(rows, fileName, options = {}) {
   };
 
   state.imported = importState;
-  state.results = [];
   elements.hasHeader.checked = hasHeader;
   elements.fileName.textContent = fileName;
   elements.fileIcon.textContent = fileName === "Lista colada"
@@ -334,7 +351,6 @@ function createImport(rows, fileName, options = {}) {
   });
 
   elements.phoneColumn.value = String(importState.phoneColumn);
-  elements.resultsSection.hidden = true;
   elements.batchAlert.hidden = true;
   updateImportPreview();
   updateBatchButton();
@@ -350,6 +366,9 @@ function activeRows() {
 function buildRecords() {
   if (!state.imported) return [];
   const rows = activeRows();
+  const sourceHeaders = state.imported.hasHeader
+    ? state.imported.rawRows[0].map((cell, index) => cell.trim() || `Coluna ${index + 1}`)
+    : state.imported.headers;
   return rows.map((cells, index) => {
     const raw = String(cells[state.imported.phoneColumn] || "").trim();
     const normalized = normalizePhone(raw, elements.batchCountry, elements.batchCustomDial);
@@ -357,6 +376,9 @@ function buildRecords() {
       cells,
       index,
       raw,
+      sourceHeaders: [...sourceHeaders],
+      sourceName: state.imported.fileName,
+      sourceSheetName: state.imported.sheetName,
       phone: normalized.phone,
       reason: normalized.reason,
       status: normalized.phone ? "unknown" : "invalid_format",
@@ -388,19 +410,38 @@ function updateImportPreview() {
 
 function updateBatchButton() {
   const hasData = Boolean(state.imported && activeRows().length);
-  const enabled = state.tokenConfigured && hasData && !state.checking;
+  const enabled = state.tokenConfigured && hasData && !state.checking && !state.session.concluded;
   elements.batchCheckButton.disabled = !enabled;
   elements.batchCheckButton.querySelector("span").textContent = state.checking
     ? "A consultar…"
-    : "Verificar lista";
+    : state.session.started && !state.session.concluded
+      ? "Verificar e adicionar lote"
+      : "Verificar lista";
 
-  if (!state.tokenConfigured) {
+  const importDisabled = state.checking || state.session.concluded;
+  elements.chooseFileButton.disabled = importDisabled;
+  elements.fileInput.disabled = importDisabled;
+  elements.loadPasteButton.disabled = importDisabled;
+  elements.pasteInput.disabled = importDisabled;
+  elements.dropzone.classList.toggle("is-disabled", importDisabled);
+
+  if (state.session.concluded) {
+    elements.batchButtonHint.textContent = "A sessão foi concluída. Inicie uma nova sessão para verificar outra lista.";
+  } else if (!state.tokenConfigured) {
     elements.batchButtonHint.textContent = "Adicione os secrets ZAPI_INSTANCE_ID e ZAPI_TOKEN para ativar.";
   } else if (!hasData) {
     elements.batchButtonHint.textContent = "Importe CSV, TXT ou Excel, ou cole uma lista de números.";
   } else {
-    elements.batchButtonHint.textContent = `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos. Acima de 1.500, a consulta continua em segundo plano; não são enviadas mensagens.`;
+    elements.batchButtonHint.textContent = state.session.started
+      ? `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números novos por lote. Números já incluídos nesta sessão não são consultados novamente.`
+      : `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos. Acima de 1.500, a consulta continua em segundo plano; não são enviadas mensagens.`;
   }
+
+  elements.batchSessionHint.hidden = !state.session.started || state.session.concluded;
+  elements.batchSessionHint.textContent = state.session.started && !state.session.concluded
+    ? "Sessão aberta: importe outra lista ou cole mais números para os juntar aos resultados atuais."
+    : "";
+  updateSessionControls();
 }
 
 function showBatchAlert(message, isError = false) {

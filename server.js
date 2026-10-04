@@ -123,6 +123,7 @@ function sendLoginPage(request, response, status = 200, message = "") {
     ? `<p class="description">Introduza a palavra-passe para continuar.</p>
        ${notice}
        <form action="/api/auth/login" method="post">
+         <input type="hidden" name="username" value="contactocheck" autocomplete="username">
          <label for="password">Palavra-passe</label>
          <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
          <button type="submit">Entrar</button>

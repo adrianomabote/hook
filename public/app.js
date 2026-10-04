@@ -444,6 +444,25 @@ function updateBatchButton() {
   updateSessionControls();
 }
 
+function updateSessionControls() {
+  const hasSessionResults = state.session.started && state.results.length > 0;
+  elements.sessionControls.hidden = !hasSessionResults;
+  elements.concludeSessionButton.hidden = state.session.concluded;
+  elements.concludeSessionButton.disabled = state.checking || !hasSessionResults;
+  elements.newSessionButton.hidden = !state.session.concluded;
+  elements.newSessionButton.disabled = state.checking;
+
+  if (!hasSessionResults) {
+    elements.sessionStatus.textContent = "";
+    return;
+  }
+
+  const lineCount = state.results.length.toLocaleString("pt-PT");
+  elements.sessionStatus.textContent = state.session.concluded
+    ? `Sessão concluída: ${lineCount} linhas guardadas nesta vista.`
+    : `Sessão aberta: ${lineCount} linhas acumuladas. Pode adicionar mais lotes antes de concluir.`;
+}
+
 function showBatchAlert(message, isError = false) {
   elements.batchAlert.textContent = message;
   elements.batchAlert.classList.toggle("is-error", isError);
@@ -722,13 +741,12 @@ elements.loadPasteButton.addEventListener("click", () => {
 
 elements.removeFileButton.addEventListener("click", () => {
   state.imported = null;
-  state.results = [];
   elements.fileInput.value = "";
   elements.fileSummary.hidden = true;
   elements.importSettings.hidden = true;
   elements.importPreview.hidden = true;
-  elements.resultsSection.hidden = true;
   elements.batchAlert.hidden = true;
+  renderBatchResults();
   updateBatchButton();
 });
 
@@ -743,7 +761,7 @@ function renderProgress(done, total, label) {
 }
 
 async function runBatchCheck() {
-  if (!state.imported || !state.tokenConfigured || state.checking) return;
+  if (!state.imported || !state.tokenConfigured || state.checking || state.session.concluded) return;
   const records = buildRecords();
   const uniquePhones = [...new Set(records.map((record) => record.phone).filter(Boolean))];
 
@@ -759,19 +777,42 @@ async function runBatchCheck() {
     return;
   }
 
+  const previousStatusByPhone = new Map(
+    state.results
+      .filter((record) => record.phone)
+      .map((record) => [record.phone, record.status]),
+  );
+  const newPhones = uniquePhones.filter((phone) => !state.session.checkedPhones.has(phone));
+  const batchStart = state.results.length;
+
   state.checking = true;
-  state.results = records;
+  state.session.started = true;
+  newPhones.forEach((phone) => state.session.checkedPhones.add(phone));
+  state.results.push(...records.map((record) => ({
+    ...record,
+    status: record.phone
+      ? (previousStatusByPhone.get(record.phone) || "pending")
+      : "invalid_format",
+  })));
   elements.resultsSection.hidden = false;
   elements.batchAlert.hidden = true;
-  elements.batchCheckButton.disabled = true;
   updateBatchButton();
   renderBatchResults();
 
-  if (uniquePhones.length === 0) {
+  if (newPhones.length === 0) {
+    state.results.splice(batchStart, records.length, ...records.map((record) => ({
+      ...record,
+      status: record.phone
+        ? (previousStatusByPhone.get(record.phone) || "unknown")
+        : "invalid_format",
+    })));
     renderBatchResults();
     elements.progressWrap.hidden = true;
-    showBatchAlert("Não encontrei números com um formato válido para consultar.", true);
+    showBatchAlert(uniquePhones.length
+      ? "Esta lista não contém números novos. Os números repetidos mantêm o estado já conhecido."
+      : "Não encontrei números com um formato válido para consultar.", uniquePhones.length === 0);
     state.checking = false;
+    renderBatchResults();
     updateBatchButton();
     return;
   }
@@ -779,47 +820,49 @@ async function runBatchCheck() {
   const resultByPhone = new Map();
   let completed = 0;
 
-  renderProgress(0, uniquePhones.length, "A preparar a consulta…");
+  renderProgress(0, newPhones.length, "A preparar a consulta…");
 
   try {
-    renderProgress(0, uniquePhones.length, "A iniciar a verificação…");
-    const results = await requestCheck(uniquePhones, (done, total) => {
+    renderProgress(0, newPhones.length, "A iniciar a verificação…");
+    const results = await requestCheck(newPhones, (done, total) => {
       completed = done;
       renderProgress(
         done,
         total,
-        `${done.toLocaleString("pt-PT")} de ${total.toLocaleString("pt-PT")} números verificados…`,
+        `${done.toLocaleString("pt-PT")} de ${total.toLocaleString("pt-PT")} números novos verificados…`,
       );
     });
     results.forEach((result) => resultByPhone.set(result.phone, result.status));
-    completed = uniquePhones.length;
+    completed = newPhones.length;
 
-    state.results = records.map((record) => ({
+    state.results.splice(batchStart, records.length, ...records.map((record) => ({
       ...record,
-      status: record.phone ? (resultByPhone.get(record.phone) || "unknown") : "invalid_format",
-    }));
+      status: record.phone
+        ? (resultByPhone.get(record.phone) || previousStatusByPhone.get(record.phone) || "unknown")
+        : "invalid_format",
+    })));
     renderBatchResults();
-    renderProgress(completed, uniquePhones.length, `${completed.toLocaleString("pt-PT")} de ${uniquePhones.length.toLocaleString("pt-PT")} números consultados`);
+    renderProgress(completed, newPhones.length, `${completed.toLocaleString("pt-PT")} de ${newPhones.length.toLocaleString("pt-PT")} números novos consultados`);
     const validCount = state.results.filter((record) => record.status === "valid").length;
-    if (validCount) {
-      showBatchAlert(`Consulta concluída: ${validCount.toLocaleString("pt-PT")} contactos confirmados. Pode copiá-los ou escolher um formato para descarregar.`);
-    } else {
-      showBatchAlert("Consulta concluída. Não foram encontrados contactos com WhatsApp para exportar.");
-    }
+    showBatchAlert(
+      `Lote concluído e adicionado à sessão. ${validCount.toLocaleString("pt-PT")} contactos confirmados no total. Pode importar mais números ou concluir e descarregar os resultados.`,
+    );
   } catch (error) {
     (Array.isArray(error.results) ? error.results : []).forEach((result) => {
       resultByPhone.set(result.phone, result.status);
     });
-    state.results = records.map((record) => ({
+    state.results.splice(batchStart, records.length, ...records.map((record) => ({
       ...record,
-      status: record.phone ? (resultByPhone.get(record.phone) || "unknown") : "invalid_format",
-    }));
+      status: record.phone
+        ? (resultByPhone.get(record.phone) || previousStatusByPhone.get(record.phone) || "unknown")
+        : "invalid_format",
+    })));
     renderBatchResults();
     const progressMessage = completed
-      ? `${completed.toLocaleString("pt-PT")} de ${uniquePhones.length.toLocaleString("pt-PT")} números foram verificados. `
+      ? `${completed.toLocaleString("pt-PT")} de ${newPhones.length.toLocaleString("pt-PT")} números novos foram verificados. `
       : "";
     showBatchAlert(
-      `${progressMessage}${error.message} Os números sem resposta continuam como não confirmados; “Baixar contactos” e “Copiar contactos” só incluem resultados confirmados.`,
+      `O lote foi mantido na sessão. ${progressMessage}${error.message} Os números sem resposta continuam como não confirmados; os ficheiros de contactos e a cópia só incluem resultados confirmados.`,
       true,
     );
   } finally {
@@ -950,46 +993,90 @@ function verifiedContacts() {
     }));
 }
 
-function sourceRowsForValidContacts(validContacts) {
-  const imported = state.imported;
-  const columnCount = imported.rawRows.reduce(
-    (largest, row) => Math.max(largest, row.length),
-    1,
-  );
-  const sourceHeaders = imported.hasHeader
-    ? [...imported.rawRows[0]]
-    : imported.headers.slice(0, columnCount);
-  while (sourceHeaders.length < columnCount) sourceHeaders.push("");
-  const rows = [[...sourceHeaders, "Nome de WhatsApp", "Número de WhatsApp"]];
+function sourceColumnsFor(headers) {
+  const seen = new Map();
+  return headers.map((header, index) => {
+    const label = String(header || "").trim() || `Coluna ${index + 1}`;
+    const baseKey = normalizedHeader(label) || `coluna${index + 1}`;
+    const occurrence = (seen.get(baseKey) || 0) + 1;
+    seen.set(baseKey, occurrence);
+    return {
+      key: `${baseKey}#${occurrence}`,
+      label: occurrence === 1 ? label : `${label} (${occurrence})`,
+      index,
+    };
+  });
+}
 
+function combinedSourceColumns(records) {
+  const columns = new Map();
+  records.forEach((record) => {
+    const headers = Array.isArray(record.sourceHeaders)
+      ? record.sourceHeaders
+      : record.cells.map((_, index) => `Coluna ${index + 1}`);
+    sourceColumnsFor(headers).forEach((column) => {
+      if (!columns.has(column.key)) columns.set(column.key, { key: column.key, label: column.label });
+    });
+  });
+  return [...columns.values()];
+}
+
+function sourceValuesForRecord(record, columns) {
+  const headers = Array.isArray(record.sourceHeaders)
+    ? record.sourceHeaders
+    : record.cells.map((_, index) => `Coluna ${index + 1}`);
+  const values = new Map(sourceColumnsFor(headers).map((column) => [
+    column.key,
+    record.cells[column.index] ?? "",
+  ]));
+  return columns.map((column) => values.get(column.key) ?? "");
+}
+
+function sourceRowsForValidContacts(validContacts, allRecords = validContacts) {
+  const sourceColumns = combinedSourceColumns(allRecords);
+  const headers = [
+    ...sourceColumns.map((column) => column.label),
+    "Ficheiro de origem",
+    "Nome de WhatsApp",
+    "Número de WhatsApp",
+  ];
+  const rows = [headers];
   validContacts.forEach((record) => {
-    const source = [...record.cells];
-    while (source.length < columnCount) source.push("");
     rows.push([
-      ...source.slice(0, columnCount),
+      ...sourceValuesForRecord(record, sourceColumns),
+      record.sourceName || "",
       record.contactName,
       record.phone,
     ]);
   });
-
   return rows;
 }
 
-async function prepareWhatsAppFile(format = elements.exportFormat.value) {
-  const imported = state.imported;
-  const validContacts = verifiedContacts();
-  if (!imported || !validContacts.length) return null;
+function sessionSourceName() {
+  const names = [...new Set(state.results.map((record) => record.sourceName).filter(Boolean))];
+  return names.length ? names.join(", ").slice(0, 300) : "Sessão cumulativa";
+}
 
-  const rows = sourceRowsForValidContacts(validContacts);
-  const baseName = imported.fileName
+function sessionBaseName() {
+  const names = [...new Set(state.results.map((record) => record.sourceName).filter(Boolean))];
+  if (names.length !== 1) return "sessao-contactos";
+  return names[0]
     .replace(/\.[^.]+$/, "")
     .replace(/[^a-z0-9_-]+/gi, "-")
     .replace(/^-+|-+$/g, "") || "numeros";
+}
+
+async function prepareWhatsAppFile(format = elements.exportFormat.value) {
+  const validContacts = verifiedContacts();
+  if (!validContacts.length) return null;
+
+  const rows = sourceRowsForValidContacts(validContacts, state.results);
+  const baseName = sessionBaseName();
 
   if (format === "xlsx") {
     const XLSX = await loadSpreadsheetLibrary();
     const workbook = XLSX.utils.book_new();
-    const sheetName = imported.sheetName.replace(/[\\/?*:\[\]]/g, " ").slice(0, 31) || "Contactos";
+    const sheetName = "Contactos com WhatsApp";
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), sheetName);
     const content = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
     return {
@@ -1019,7 +1106,7 @@ async function downloadWhatsAppFile() {
     triggerBlobDownload(file.fileName, file.blob);
 
     try {
-      await saveExportHistory(file, contacts.length, state.imported.fileName);
+      await saveExportHistory(file, contacts.length, sessionSourceName());
       await renderExportHistory(`${file.fileName} foi guardado no histórico deste navegador.`);
       showBatchAlert(`${contacts.length.toLocaleString("pt-PT")} contactos confirmados descarregados e guardados no histórico local.`);
     } catch {
@@ -1255,30 +1342,28 @@ async function renderExportHistory(announcement = "") {
   }
 }
 
-function downloadCsv(filter) {
+function downloadCsv(filter, options = {}) {
   const rows = state.results.filter((row) => filter === "all" || row.status === filter);
-  if (!rows.length || !state.imported) return;
+  if (!rows.length) return false;
 
-  const hasHeader = state.imported.hasHeader;
-  const sourceHeaders = hasHeader
-    ? state.imported.rawRows[0].map((value) => value.trim())
-    : state.imported.headers;
-  const headers = [...sourceHeaders, "telefone_normalizado", "status_whatsapp"];
+  const sourceColumns = combinedSourceColumns(rows);
+  const headers = [
+    ...sourceColumns.map((column) => column.label),
+    "ficheiro_origem",
+    "telefone_normalizado",
+    "status_whatsapp",
+  ];
   const dataRows = rows.map((row) => {
-    const source = [...row.cells];
-    while (source.length < sourceHeaders.length) source.push("");
     return [
-      ...source.slice(0, sourceHeaders.length),
+      ...sourceValuesForRecord(row, sourceColumns),
+      row.sourceName || "",
       row.phone || "",
       statusForExport(row.status),
     ];
   });
   const content = `\uFEFF${[headers, ...dataRows].map((row) => row.map(csvCell).join(";")).join("\r\n")}`;
   const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
-  const baseName = state.imported.fileName
-    .replace(/\.[^.]+$/, "")
-    .replace(/[^a-z0-9_-]+/gi, "-")
-    .replace(/^-+|-+$/g, "") || "numeros";
+  const baseName = sessionBaseName();
   const suffix = filter === "valid"
     ? "com-whatsapp"
     : filter === "invalid"
@@ -1291,19 +1376,55 @@ function downloadCsv(filter) {
 
   const confirmedCount = rows.filter((row) => row.status === "valid").length;
   if (confirmedCount > 0) {
-    void saveExportHistory({ fileName, blob }, confirmedCount, state.imported.fileName)
+    void saveExportHistory({ fileName, blob }, confirmedCount, sessionSourceName())
       .then(() => renderExportHistory(`${fileName} foi guardado no histórico deste navegador.`))
       .catch(() => setHistoryStatus(
         "O ficheiro foi descarregado, mas não foi possível guardá-lo no histórico local.",
         true,
       ));
   }
+  return true;
 }
 
 elements.exportValidButton.addEventListener("click", downloadWhatsAppFile);
 elements.copyValidButton.addEventListener("click", copyWhatsAppContacts);
 elements.exportInvalidButton.addEventListener("click", () => downloadCsv("invalid"));
 elements.exportAllButton.addEventListener("click", () => downloadCsv("all"));
+elements.concludeSessionButton.addEventListener("click", () => {
+  if (!state.session.started || state.session.concluded || state.checking) return;
+  try {
+    if (!downloadCsv("all", { includeUnknown: true })) return;
+    state.session.concluded = true;
+    updateBatchButton();
+    renderBatchResults();
+    showBatchAlert("Sessão concluída. O ficheiro final com os resultados acumulados foi descarregado.");
+  } catch (error) {
+    showBatchAlert(`Não foi possível descarregar os resultados finais: ${error.message}`, true);
+  }
+});
+elements.newSessionButton.addEventListener("click", () => {
+  if (!state.session.concluded || state.checking) return;
+  if (!window.confirm("Iniciar uma nova sessão? Os resultados atuais serão removidos desta vista. Confirme que já guardou o ficheiro final.")) return;
+
+  state.session = {
+    started: false,
+    concluded: false,
+    checkedPhones: new Set(),
+  };
+  state.imported = null;
+  state.results = [];
+  state.filter = "all";
+  elements.fileInput.value = "";
+  elements.pasteInput.value = "";
+  elements.resultFilter.value = "all";
+  elements.fileSummary.hidden = true;
+  elements.importSettings.hidden = true;
+  elements.importPreview.hidden = true;
+  elements.resultsSection.hidden = true;
+  elements.progressWrap.hidden = true;
+  elements.batchAlert.hidden = true;
+  updateBatchButton();
+});
 elements.clearHistoryButton.addEventListener("click", async () => {
   if (!window.confirm("Apagar todos os ficheiros guardados neste navegador?")) return;
   elements.clearHistoryButton.disabled = true;

@@ -13,7 +13,7 @@
 - A instância Z-API deve estar ativa antes de consultar.
 - O verificador consulta se existe uma conta e não envia mensagens; os estados são `valid`, `invalid` ou não confirmado quando a resposta não é conclusiva.
 - A interface aceita até 100.000 números únicos numa lista e envia-os ao servidor numa consulta; o servidor verifica até 1.000 por divisão e aguarda um clique antes de cada divisão seguinte.
-- Nas listas acima de 1.000, os números e resultados do trabalho ficam temporariamente na memória do servidor até a verificação terminar; o estado fica disponível para consulta durante 30 minutos.
+- Nas listas acima de 1.000, o trabalho fica temporariamente na memória do servidor; se ficar pausado sem clique por 30 minutos, expira. Os resultados concluídos ficam disponíveis durante 30 minutos.
 - Números sem código de país são normalizados usando o país escolhido na interface.
 
 ## Privacidade e limites

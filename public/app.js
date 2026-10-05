@@ -442,8 +442,8 @@ function updateBatchButton() {
     elements.batchButtonHint.textContent = "Importe CSV, TXT ou Excel, ou cole uma lista de números.";
   } else {
     elements.batchButtonHint.textContent = state.session.started
-      ? `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números novos por lista, em divisões de ${PROVIDER_BATCH_SIZE.toLocaleString("pt-PT")}. Números já incluídos nesta sessão não são consultados novamente.`
-      : `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos por lista, verificados em divisões de ${PROVIDER_BATCH_SIZE.toLocaleString("pt-PT")}. Não são enviadas mensagens.`;
+      ? `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números novos por lista, em divisões de ${PROVIDER_BATCH_SIZE.toLocaleString("pt-PT")}. Cada divisão espera o seu clique; números já consultados não são repetidos.`
+      : `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos por lista, em divisões de ${PROVIDER_BATCH_SIZE.toLocaleString("pt-PT")}. Cada divisão espera o seu clique; não são enviadas mensagens.`;
   }
 
   elements.batchSessionHint.hidden = !state.session.started || state.session.concluded;

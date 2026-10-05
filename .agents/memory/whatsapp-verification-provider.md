@@ -9,11 +9,11 @@ The official WhatsApp Cloud API does not document a general silent lookup for ar
 
 **How to apply:** Keep requests on Z-API's phone-existence endpoints. Never use a messaging endpoint or change the no-message behavior without asking.
 
-The user changed the earlier manual-splitting choice: a list may contain up to 100,000 unique numbers, and the checker must automatically verify it in sequential divisions of 1,000 while showing current and total divisions.
+The user wants lists of up to 100,000 unique numbers checked in sequential divisions of 1,000, with a manual click required before each next division. They report that checking more than 1,426 at once risks a WhatsApp ban.
 
-**Why:** The user explicitly asked to paste large lists (including 100,000 contacts), split them into blocks of 1,000, and see which division is running.
+**Why:** The user explicitly requested a pause after every division and said WhatsApp may ban checks above 1,426 at once.
 
-**How to apply:** Keep the frontend and server limits aligned at 100,000 per list and send no more than 1,000 numbers to the provider per request. Offer WhatsApp contact downloads only from provider-confirmed rows; the existing no-message requirement still applies.
+**How to apply:** Keep the frontend and server limits aligned at 100,000 per list, send no more than 1,000 numbers to the provider per request, and require a user click before every subsequent division. Offer downloads only from provider-confirmed rows; the no-message requirement still applies.
 
 ## Interpreting provider errors
 

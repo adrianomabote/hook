@@ -564,9 +564,10 @@ async function processCheckJob(job) {
 
   job.status = "paused";
   job.pausedAt = Date.now();
-  const pauseStartedAt = job.pausedAt;
+  job.pauseVersion = (job.pauseVersion || 0) + 1;
+  const pauseVersion = job.pauseVersion;
   const cleanupTimer = setTimeout(() => {
-    if (checkJobs.get(job.id) === job && job.status === "paused" && job.pausedAt === pauseStartedAt) {
+    if (checkJobs.get(job.id) === job && job.status === "paused" && job.pauseVersion === pauseVersion) {
       checkJobs.delete(job.id);
       job.phones = null;
       job.resultByNumber = null;
@@ -657,6 +658,7 @@ async function checkPhones(request, response) {
       error: null,
       finishedAt: null,
       pausedAt: null,
+      pauseVersion: 0,
     };
     checkJobs.set(job.id, job);
     setImmediate(() => {
@@ -736,6 +738,18 @@ function continueCheckJob(request, response, jobId) {
       status: job.status,
       total: job.total,
       completed: job.completed,
+    });
+    return;
+  }
+
+  if (["completed", "failed"].includes(job.status)) {
+    sendJson(response, 200, {
+      jobId: job.id,
+      status: job.status,
+      total: job.total,
+      completed: job.completed,
+      results: job.results,
+      error: job.error,
     });
     return;
   }

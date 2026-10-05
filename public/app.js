@@ -931,7 +931,6 @@ async function runBatchCheck() {
       completed = done;
       renderProgress(done, total, divisionProgressLabel(done, total));
     }, (jobId, done, total) => waitForManualContinue(jobId, done, total));
-    });
     results.forEach((result) => resultByPhone.set(result.phone, result.status));
     completed = newPhones.length;
 

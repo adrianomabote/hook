@@ -1,5 +1,5 @@
-const MAX_UNIQUE_PER_RUN = 50_000;
-const PROVIDER_BATCH_SIZE = 50_000;
+const MAX_UNIQUE_PER_RUN = 100_000;
+const PROVIDER_BATCH_SIZE = 1_000;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_PREVIEW_ROWS = 12;
 let xlsxLibraryPromise = null;
@@ -438,8 +438,8 @@ function updateBatchButton() {
     elements.batchButtonHint.textContent = "Importe CSV, TXT ou Excel, ou cole uma lista de números.";
   } else {
     elements.batchButtonHint.textContent = state.session.started
-      ? `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números novos por lote. Números já incluídos nesta sessão não são consultados novamente.`
-      : `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos. Acima de 1.500, a consulta continua em segundo plano; não são enviadas mensagens.`;
+      ? `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números novos por lista, em divisões de ${PROVIDER_BATCH_SIZE.toLocaleString("pt-PT")}. Números já incluídos nesta sessão não são consultados novamente.`
+      : `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos por lista, verificados em divisões de ${PROVIDER_BATCH_SIZE.toLocaleString("pt-PT")}. Não são enviadas mensagens.`;
   }
 
   elements.batchSessionHint.hidden = !state.session.started || state.session.concluded;
@@ -765,6 +765,19 @@ function renderProgress(done, total, label) {
   elements.progressBar.style.width = `${percentage}%`;
 }
 
+function divisionProgressLabel(done, total) {
+  const divisionCount = Math.ceil(total / PROVIDER_BATCH_SIZE);
+  if (done >= total) {
+    return `${divisionCount.toLocaleString("pt-PT")} de ${divisionCount.toLocaleString("pt-PT")} divisões concluídas · ${total.toLocaleString("pt-PT")} números verificados`;
+  }
+
+  const currentDivision = Math.min(
+    Math.floor(done / PROVIDER_BATCH_SIZE) + 1,
+    divisionCount,
+  );
+  return `A verificar divisão ${currentDivision.toLocaleString("pt-PT")} de ${divisionCount.toLocaleString("pt-PT")} · ${done.toLocaleString("pt-PT")} de ${total.toLocaleString("pt-PT")} números`;
+}
+
 async function runBatchCheck() {
   if (!state.imported || !state.tokenConfigured || state.checking || state.session.concluded) return;
   const records = buildRecords();
@@ -776,7 +789,7 @@ async function runBatchCheck() {
   }
   if (uniquePhones.length > MAX_UNIQUE_PER_RUN) {
     showBatchAlert(
-      `Esta lista tem ${uniquePhones.length.toLocaleString("pt-PT")} números únicos. O limite por verificação é ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")}. Divida a lista em partes menores.`,
+      `Esta lista tem ${uniquePhones.length.toLocaleString("pt-PT")} números únicos. O limite por lista é ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")}.`,
       true,
     );
     return;
@@ -825,17 +838,13 @@ async function runBatchCheck() {
   const resultByPhone = new Map();
   let completed = 0;
 
-  renderProgress(0, newPhones.length, "A preparar a consulta…");
+  renderProgress(0, newPhones.length, divisionProgressLabel(0, newPhones.length));
 
   try {
-    renderProgress(0, newPhones.length, "A iniciar a verificação…");
+    renderProgress(0, newPhones.length, divisionProgressLabel(0, newPhones.length));
     const results = await requestCheck(newPhones, (done, total) => {
       completed = done;
-      renderProgress(
-        done,
-        total,
-        `${done.toLocaleString("pt-PT")} de ${total.toLocaleString("pt-PT")} números novos verificados…`,
-      );
+      renderProgress(done, total, divisionProgressLabel(done, total));
     });
     results.forEach((result) => resultByPhone.set(result.phone, result.status));
     completed = newPhones.length;
@@ -847,11 +856,11 @@ async function runBatchCheck() {
         : "invalid_format",
     })));
     renderBatchResults();
-    renderProgress(completed, newPhones.length, `${completed.toLocaleString("pt-PT")} de ${newPhones.length.toLocaleString("pt-PT")} números novos consultados`);
+    renderProgress(completed, newPhones.length, divisionProgressLabel(completed, newPhones.length));
     const validCount = state.results.filter((record) => record.status === "valid").length;
-    showBatchAlert(
-      `Lote concluído e adicionado à sessão. ${validCount.toLocaleString("pt-PT")} contactos confirmados no total. Pode importar mais números ou concluir e descarregar os resultados.`,
-    );
+    showBatchAlert(validCount
+      ? `Verificação concluída: ${Math.ceil(newPhones.length / PROVIDER_BATCH_SIZE).toLocaleString("pt-PT")} divisões processadas. ${validCount.toLocaleString("pt-PT")} contactos confirmados na sessão. “Baixar contactos” já inclui apenas os confirmados; também pode importar mais números.`
+      : `Verificação concluída: ${Math.ceil(newPhones.length / PROVIDER_BATCH_SIZE).toLocaleString("pt-PT")} divisões processadas. Não foram encontrados contactos confirmados para descarregar.`);
   } catch (error) {
     (Array.isArray(error.results) ? error.results : []).forEach((result) => {
       resultByPhone.set(result.phone, result.status);
@@ -863,11 +872,17 @@ async function runBatchCheck() {
         : "invalid_format",
     })));
     renderBatchResults();
-    const progressMessage = completed
-      ? `${completed.toLocaleString("pt-PT")} de ${newPhones.length.toLocaleString("pt-PT")} números novos foram verificados. `
-      : "";
+    const totalDivisions = Math.ceil(newPhones.length / PROVIDER_BATCH_SIZE);
+    const completedDivisions = Math.floor(completed / PROVIDER_BATCH_SIZE);
+    const currentDivision = Math.min(completedDivisions + 1, totalDivisions);
+    renderProgress(
+      completed,
+      newPhones.length,
+      `Interrompida na divisão ${currentDivision.toLocaleString("pt-PT")} de ${totalDivisions.toLocaleString("pt-PT")}`,
+    );
+    const progressMessage = `${completedDivisions.toLocaleString("pt-PT")} divisões concluídas; `;
     showBatchAlert(
-      `O lote foi mantido na sessão. ${progressMessage}${error.message} Os números sem resposta continuam como não confirmados; os ficheiros de contactos e a cópia só incluem resultados confirmados.`,
+      `A verificação foi interrompida. ${progressMessage}${error.message} Os números sem resposta ficam como não confirmados; “Baixar contactos” só inclui os confirmados.`,
       true,
     );
   } finally {

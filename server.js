@@ -607,7 +607,7 @@ async function checkPhones(request, response) {
   if (phones.length > MAX_NUMBERS_PER_CONSULTATION) {
     sendJson(response, 413, {
       code: "consultation_too_large",
-      error: `O limite é ${MAX_NUMBERS_PER_CONSULTATION.toLocaleString("pt-PT")} números únicos por verificação. Divida a lista em verificações menores.`,
+      error: `O limite é ${MAX_NUMBERS_PER_CONSULTATION.toLocaleString("pt-PT")} números únicos por lista.`,
     });
     return;
   }

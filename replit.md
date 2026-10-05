@@ -20,5 +20,5 @@
 
 - Os números consultados são enviados à Z-API para validação.
 - O token é mantido no servidor e nunca devolvido pela API do app.
-- A API limita o tamanho de cada lote e o ritmo de requisições. Os limites do plano Whapi.Cloud continuam se aplicando.
+- A API limita o tamanho de cada lista e o ritmo das consultas; os limites do plano Z-API continuam se aplicando.
 - O site e a API exigem autenticação por palavra-passe. Mantenha `SITE_PASSWORD` e `SESSION_SECRET` configurados como Secrets antes de publicar; a sessão expira após 12 horas.

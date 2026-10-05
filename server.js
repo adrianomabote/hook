@@ -522,37 +522,56 @@ async function requestProviderContacts(phones) {
 function removeExpiredCheckJobs() {
   const cutoff = Date.now() - JOB_RETENTION_MS;
   for (const [jobId, job] of checkJobs) {
-    if (job.finishedAt && job.finishedAt < cutoff) checkJobs.delete(jobId);
+    const completedJobExpired = job.finishedAt && job.finishedAt < cutoff;
+    const pausedJobExpired = job.status === "paused" && job.pausedAt && job.pausedAt < cutoff;
+    if (completedJobExpired || pausedJobExpired) {
+      checkJobs.delete(jobId);
+      job.phones = null;
+      job.resultByNumber = null;
+    }
   }
 }
 
 async function processCheckJob(job) {
   job.status = "running";
-  const resultByNumber = new Map();
+  job.pausedAt = null;
+  const batch = job.phones.slice(job.completed, job.completed + PROVIDER_BATCH_SIZE);
 
-  for (let offset = 0; offset < job.phones.length; offset += PROVIDER_BATCH_SIZE) {
-    const batch = job.phones.slice(offset, offset + PROVIDER_BATCH_SIZE);
-    try {
-      const results = await requestProviderContacts(batch);
-      results.forEach((result) => {
-        resultByNumber.set(digitsOnly(result.phone), result.status);
-      });
-      job.completed += batch.length;
-    } catch (error) {
-      job.status = "failed";
-      job.error = error.message;
-      break;
-    }
+  try {
+    const results = await requestProviderContacts(batch);
+    results.forEach((result) => {
+      job.resultByNumber.set(digitsOnly(result.phone), result.status);
+    });
+    job.completed += batch.length;
+  } catch (error) {
+    job.status = "failed";
+    job.error = error.message;
   }
 
-  job.results = job.phones.map((phone) => ({
-    phone,
-    status: resultByNumber.get(digitsOnly(phone)) || "unknown",
-  }));
-  job.phones = null;
-  job.finishedAt = Date.now();
-  if (job.status !== "failed") job.status = "completed";
-  const cleanupTimer = setTimeout(() => checkJobs.delete(job.id), JOB_RETENTION_MS);
+  if (job.status === "failed" || job.completed >= job.total) {
+    job.results = job.phones.map((phone) => ({
+      phone,
+      status: job.resultByNumber.get(digitsOnly(phone)) || "unknown",
+    }));
+    job.phones = null;
+    job.resultByNumber = null;
+    job.finishedAt = Date.now();
+    if (job.status !== "failed") job.status = "completed";
+    const cleanupTimer = setTimeout(() => checkJobs.delete(job.id), JOB_RETENTION_MS);
+    cleanupTimer.unref?.();
+    return;
+  }
+
+  job.status = "paused";
+  job.pausedAt = Date.now();
+  const pauseStartedAt = job.pausedAt;
+  const cleanupTimer = setTimeout(() => {
+    if (checkJobs.get(job.id) === job && job.status === "paused" && job.pausedAt === pauseStartedAt) {
+      checkJobs.delete(job.id);
+      job.phones = null;
+      job.resultByNumber = null;
+    }
+  }, JOB_RETENTION_MS);
   cleanupTimer.unref?.();
 }
 
@@ -616,7 +635,7 @@ async function checkPhones(request, response) {
     removeExpiredCheckJobs();
     const address = clientAddress(request);
     const hasActiveJob = [...checkJobs.values()].some((job) => (
-      job.address === address && ["queued", "running"].includes(job.status)
+      job.address === address && ["queued", "running", "paused"].includes(job.status)
     ));
     if (hasActiveJob) {
       sendJson(response, 429, {
@@ -633,9 +652,11 @@ async function checkPhones(request, response) {
       total: phones.length,
       completed: 0,
       status: "queued",
+      resultByNumber: new Map(),
       results: null,
       error: null,
       finishedAt: null,
+      pausedAt: null,
     };
     checkJobs.set(job.id, job);
     setImmediate(() => {
@@ -663,6 +684,7 @@ async function checkPhones(request, response) {
 }
 
 function getCheckJob(request, response, jobId) {
+  removeExpiredCheckJobs();
   const job = checkJobs.get(jobId);
   if (!job || job.address !== clientAddress(request)) {
     sendJson(response, 404, {
@@ -679,6 +701,48 @@ function getCheckJob(request, response, jobId) {
     completed: job.completed,
     results: job.results,
     error: job.error,
+  });
+}
+
+function continueCheckJob(request, response, jobId) {
+  removeExpiredCheckJobs();
+  const job = checkJobs.get(jobId);
+  if (!job || job.address !== clientAddress(request)) {
+    sendJson(response, 404, {
+      code: "check_not_found",
+      error: "A verificação não foi encontrada ou já expirou.",
+    });
+    return;
+  }
+
+  if (job.status === "paused") {
+    job.pausedAt = null;
+    job.status = "queued";
+    setImmediate(() => {
+      void processCheckJob(job);
+    });
+    sendJson(response, 202, {
+      jobId: job.id,
+      status: job.status,
+      total: job.total,
+      completed: job.completed,
+    });
+    return;
+  }
+
+  if (["queued", "running"].includes(job.status)) {
+    sendJson(response, 202, {
+      jobId: job.id,
+      status: job.status,
+      total: job.total,
+      completed: job.completed,
+    });
+    return;
+  }
+
+  sendJson(response, 409, {
+    code: "check_not_paused",
+    error: "Esta verificação já terminou ou foi interrompida.",
   });
 }
 
@@ -778,6 +842,12 @@ const server = http.createServer((request, response) => {
   const checkJobMatch = url.pathname.match(/^\/api\/check\/([a-f0-9-]{36})$/i);
   if (checkJobMatch && request.method === "GET") {
     getCheckJob(request, response, checkJobMatch[1]);
+    return;
+  }
+
+  const continueJobMatch = url.pathname.match(/^\/api\/check\/([a-f0-9-]{36})\/continue$/i);
+  if (continueJobMatch && request.method === "POST") {
+    continueCheckJob(request, response, continueJobMatch[1]);
     return;
   }
 

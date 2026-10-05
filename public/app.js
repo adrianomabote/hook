@@ -41,6 +41,9 @@ const elements = {
   progressLabel: document.querySelector("#progressLabel"),
   progressPercent: document.querySelector("#progressPercent"),
   progressBar: document.querySelector("#progressBar"),
+  progressContinueWrap: document.querySelector("#progressContinue"),
+  progressContinueHint: document.querySelector("#progressContinueHint"),
+  continueDivisionButton: document.querySelector("#continueDivisionButton"),
   resultsSection: document.querySelector("#resultsSection"),
   batchSessionHint: document.querySelector("#batchSessionHint"),
   validCount: document.querySelector("#validCount"),
@@ -72,6 +75,7 @@ let exportHistoryDbPromise = null;
 const state = {
   tokenConfigured: false,
   checking: false,
+  continueAction: null,
   imported: null,
   results: [],
   filter: "all",
@@ -510,7 +514,7 @@ function showSingleResult(status, title, detail) {
   elements.singleResult.hidden = false;
 }
 
-async function requestCheck(phones, onProgress) {
+async function requestCheck(phones, onProgress, onPaused) {
   const response = await fetch("/api/check", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -569,6 +573,13 @@ async function requestCheck(phones, onProgress) {
       const error = new Error(statusData.error || "A verificação foi interrompida pelo serviço.");
       error.results = Array.isArray(statusData.results) ? statusData.results : [];
       throw error;
+    }
+    if (statusData.status === "paused") {
+      if (!onPaused) {
+        throw new Error("A verificação aguarda confirmação antes de continuar.");
+      }
+      await onPaused(data.jobId, completed, Number(statusData.total) || phones.length);
+      continue;
     }
     if (!["queued", "running"].includes(statusData.status)) {
       throw new Error("O estado da verificação não é reconhecido.");
@@ -756,6 +767,9 @@ elements.removeFileButton.addEventListener("click", () => {
 });
 
 elements.batchCheckButton.addEventListener("click", runBatchCheck);
+elements.continueDivisionButton.addEventListener("click", () => {
+  if (state.continueAction) void state.continueAction();
+});
 
 function renderProgress(done, total, label) {
   const percentage = total ? Math.round((done / total) * 100) : 100;
@@ -776,6 +790,67 @@ function divisionProgressLabel(done, total) {
     divisionCount,
   );
   return `A verificar divisão ${currentDivision.toLocaleString("pt-PT")} de ${divisionCount.toLocaleString("pt-PT")} · ${done.toLocaleString("pt-PT")} de ${total.toLocaleString("pt-PT")} números`;
+}
+
+function waitForManualContinue(jobId, done, total) {
+  const totalDivisions = Math.ceil(total / PROVIDER_BATCH_SIZE);
+  const completedDivisions = Math.ceil(done / PROVIDER_BATCH_SIZE);
+  const nextDivision = completedDivisions + 1;
+
+  renderProgress(
+    done,
+    total,
+    `Pausada após a divisão ${completedDivisions.toLocaleString("pt-PT")} de ${totalDivisions.toLocaleString("pt-PT")}`,
+  );
+  elements.progressContinueWrap.hidden = false;
+  elements.progressContinueHint.textContent = `A divisão ${completedDivisions.toLocaleString("pt-PT")} terminou. A próxima divisão só começa depois do seu clique.`;
+  elements.continueDivisionButton.textContent = `Iniciar divisão ${nextDivision.toLocaleString("pt-PT")} de ${totalDivisions.toLocaleString("pt-PT")}`;
+  elements.continueDivisionButton.disabled = false;
+
+  return new Promise((resolve, reject) => {
+    let requesting = false;
+    state.continueAction = async () => {
+      if (requesting) return;
+      requesting = true;
+      elements.continueDivisionButton.disabled = true;
+      elements.progressContinueHint.textContent = `A preparar a divisão ${nextDivision.toLocaleString("pt-PT")} de ${totalDivisions.toLocaleString("pt-PT")}…`;
+
+      try {
+        const response = await fetch(`/api/check/${encodeURIComponent(jobId)}/continue`, {
+          method: "POST",
+          cache: "no-store",
+        });
+        let data;
+        try {
+          data = await response.json();
+        } catch {
+          data = {};
+        }
+        if (!response.ok) {
+          const error = new Error(data.error || "Não foi possível continuar a verificação.");
+          error.status = response.status;
+          throw error;
+        }
+
+        state.continueAction = null;
+        elements.progressContinueWrap.hidden = true;
+        elements.batchAlert.hidden = true;
+        renderProgress(done, total, divisionProgressLabel(done, total));
+        resolve();
+      } catch (error) {
+        if (error.status === 404 || error.status === 409) {
+          state.continueAction = null;
+          elements.progressContinueWrap.hidden = true;
+          reject(error);
+          return;
+        }
+        requesting = false;
+        elements.continueDivisionButton.disabled = false;
+        elements.progressContinueHint.textContent = `${error.message} Clique novamente para tentar.`;
+      }
+    };
+    elements.continueDivisionButton.focus?.();
+  });
 }
 
 function replaceSessionBatchResults(start, records, statusForRecord) {
@@ -813,6 +888,7 @@ async function runBatchCheck() {
   const batchStart = state.results.length;
 
   state.checking = true;
+  state.continueAction = null;
   state.session.started = true;
   newPhones.forEach((phone) => state.session.checkedPhones.add(phone));
   state.results = state.results.concat(records.map((record) => ({
@@ -827,6 +903,7 @@ async function runBatchCheck() {
   renderBatchResults();
 
   if (newPhones.length === 0) {
+    elements.progressContinueWrap.hidden = true;
     replaceSessionBatchResults(batchStart, records, (record) => (
       record.phone
         ? (previousStatusByPhone.get(record.phone) || "unknown")
@@ -853,6 +930,7 @@ async function runBatchCheck() {
     const results = await requestCheck(newPhones, (done, total) => {
       completed = done;
       renderProgress(done, total, divisionProgressLabel(done, total));
+    }, (jobId, done, total) => waitForManualContinue(jobId, done, total));
     });
     results.forEach((result) => resultByPhone.set(result.phone, result.status));
     completed = newPhones.length;
@@ -892,6 +970,8 @@ async function runBatchCheck() {
       true,
     );
   } finally {
+    state.continueAction = null;
+    elements.progressContinueWrap.hidden = true;
     state.checking = false;
     renderBatchResults();
     updateBatchButton();

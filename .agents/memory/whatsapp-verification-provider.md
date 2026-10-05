@@ -9,11 +9,11 @@ The official WhatsApp Cloud API does not document a general silent lookup for ar
 
 **How to apply:** Keep requests on Z-API's phone-existence endpoints. Never use a messaging endpoint or change the no-message behavior without asking.
 
-Z-API documents a maximum of 50,000 numbers per batch request. ContactoCheck's maximum is also 50,000 unique numbers per verification; users divide larger lists manually.
+The user changed the earlier manual-splitting choice: a list may contain up to 100,000 unique numbers, and the checker must automatically verify it in sequential divisions of 1,000 while showing current and total divisions.
 
-**Why:** The user explicitly chose a 50,000-number cap per verification instead of automatically splitting larger lists.
+**Why:** The user explicitly asked to paste large lists (including 100,000 contacts), split them into blocks of 1,000, and see which division is running.
 
-**How to apply:** Keep the client limit, server limit, and provider batch size aligned at 50,000. Larger lists must be divided into separate verifications; do not raise the limit or auto-split them without asking.
+**How to apply:** Keep the frontend and server limits aligned at 100,000 per list and send no more than 1,000 numbers to the provider per request. Offer WhatsApp contact downloads only from provider-confirmed rows; the existing no-message requirement still applies.
 
 ## Interpreting provider errors
 

@@ -778,6 +778,15 @@ function divisionProgressLabel(done, total) {
   return `A verificar divisão ${currentDivision.toLocaleString("pt-PT")} de ${divisionCount.toLocaleString("pt-PT")} · ${done.toLocaleString("pt-PT")} de ${total.toLocaleString("pt-PT")} números`;
 }
 
+function replaceSessionBatchResults(start, records, statusForRecord) {
+  records.forEach((record, index) => {
+    state.results[start + index] = {
+      ...record,
+      status: statusForRecord(record),
+    };
+  });
+}
+
 async function runBatchCheck() {
   if (!state.imported || !state.tokenConfigured || state.checking || state.session.concluded) return;
   const records = buildRecords();
@@ -806,7 +815,7 @@ async function runBatchCheck() {
   state.checking = true;
   state.session.started = true;
   newPhones.forEach((phone) => state.session.checkedPhones.add(phone));
-  state.results.push(...records.map((record) => ({
+  state.results = state.results.concat(records.map((record) => ({
     ...record,
     status: record.phone
       ? (previousStatusByPhone.get(record.phone) || "pending")
@@ -818,12 +827,11 @@ async function runBatchCheck() {
   renderBatchResults();
 
   if (newPhones.length === 0) {
-    state.results.splice(batchStart, records.length, ...records.map((record) => ({
-      ...record,
-      status: record.phone
+    replaceSessionBatchResults(batchStart, records, (record) => (
+      record.phone
         ? (previousStatusByPhone.get(record.phone) || "unknown")
-        : "invalid_format",
-    })));
+        : "invalid_format"
+    ));
     renderBatchResults();
     elements.progressWrap.hidden = true;
     showBatchAlert(uniquePhones.length
@@ -849,12 +857,11 @@ async function runBatchCheck() {
     results.forEach((result) => resultByPhone.set(result.phone, result.status));
     completed = newPhones.length;
 
-    state.results.splice(batchStart, records.length, ...records.map((record) => ({
-      ...record,
-      status: record.phone
+    replaceSessionBatchResults(batchStart, records, (record) => (
+      record.phone
         ? (resultByPhone.get(record.phone) || previousStatusByPhone.get(record.phone) || "unknown")
-        : "invalid_format",
-    })));
+        : "invalid_format"
+    ));
     renderBatchResults();
     renderProgress(completed, newPhones.length, divisionProgressLabel(completed, newPhones.length));
     const validCount = state.results.filter((record) => record.status === "valid").length;
@@ -865,12 +872,11 @@ async function runBatchCheck() {
     (Array.isArray(error.results) ? error.results : []).forEach((result) => {
       resultByPhone.set(result.phone, result.status);
     });
-    state.results.splice(batchStart, records.length, ...records.map((record) => ({
-      ...record,
-      status: record.phone
+    replaceSessionBatchResults(batchStart, records, (record) => (
+      record.phone
         ? (resultByPhone.get(record.phone) || previousStatusByPhone.get(record.phone) || "unknown")
-        : "invalid_format",
-    })));
+        : "invalid_format"
+    ));
     renderBatchResults();
     const totalDivisions = Math.ceil(newPhones.length / PROVIDER_BATCH_SIZE);
     const completedDivisions = Math.floor(completed / PROVIDER_BATCH_SIZE);

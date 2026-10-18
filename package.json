@@ -5,9 +5,14 @@
   "description": "Verificador de números de WhatsApp via Z-API",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "build": "node --check server.js && node --check whatsapp-engine.js && node --check public/app.js",
+    "lint": "node --check server.js && node --check whatsapp-engine.js && node --check public/app.js"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "pino": "^10.4.0",
+    "qrcode": "^1.5.4",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

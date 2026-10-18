@@ -66,6 +66,22 @@ const elements = {
   historyStatus: document.querySelector("#historyStatus"),
   historyList: document.querySelector("#historyList"),
   clearHistoryButton: document.querySelector("#clearHistoryButton"),
+  engineBadge: document.querySelector("#engineBadge"),
+  engineBadgeText: document.querySelector("#engineBadgeText"),
+  engineSubtitle: document.querySelector("#engineSubtitle"),
+  engineConnectQrButton: document.querySelector("#engineConnectQrButton"),
+  engineTogglePairButton: document.querySelector("#engineTogglePairButton"),
+  engineDisconnectButton: document.querySelector("#engineDisconnectButton"),
+  enginePairBox: document.querySelector("#enginePairBox"),
+  enginePairForm: document.querySelector("#enginePairForm"),
+  enginePairPhone: document.querySelector("#enginePairPhone"),
+  engineRequestCodeButton: document.querySelector("#engineRequestCodeButton"),
+  engineAuthDisplay: document.querySelector("#engineAuthDisplay"),
+  engineQrWrap: document.querySelector("#engineQrWrap"),
+  engineQrImage: document.querySelector("#engineQrImage"),
+  engineCodeWrap: document.querySelector("#engineCodeWrap"),
+  enginePairingCode: document.querySelector("#enginePairingCode"),
+  engineAlert: document.querySelector("#engineAlert"),
 };
 
 const EXPORT_HISTORY_DB = "contactocheck-export-history";
@@ -437,7 +453,7 @@ function updateBatchButton() {
   if (state.session.concluded) {
     elements.batchButtonHint.textContent = "A sessão foi concluída. Inicie uma nova sessão para verificar outra lista.";
   } else if (!state.tokenConfigured) {
-    elements.batchButtonHint.textContent = "Adicione os secrets ZAPI_INSTANCE_ID e ZAPI_TOKEN para ativar.";
+    elements.batchButtonHint.textContent = "Conecte o Motor Próprio do WhatsApp acima (via QR Code ou código) para verificar números sem depender de API externa.";
   } else if (!hasData) {
     elements.batchButtonHint.textContent = "Importe CSV, TXT ou Excel, ou cole uma lista de números.";
   } else {
@@ -494,15 +510,165 @@ function setConnectionState(configured) {
   updateBatchButton();
 }
 
+let enginePollTimer = null;
+
+function showEngineAlert(message, isError = false) {
+  if (!elements.engineAlert) return;
+  elements.engineAlert.textContent = message || "";
+  elements.engineAlert.classList.toggle("is-error", Boolean(isError));
+  elements.engineAlert.hidden = !message;
+}
+
+function renderEngineState(engine, zapiConfigured = false) {
+  if (!elements.engineBadge || !engine) return;
+
+  const isConnected = Boolean(engine.connected);
+  const status = engine.status || "disconnected";
+  const isPending = ["connecting", "qr_ready", "pairing_code_ready"].includes(status);
+
+  elements.engineBadge.classList.toggle("is-connected", isConnected);
+  elements.engineBadge.classList.toggle("is-pending", !isConnected && isPending);
+  elements.engineBadge.classList.toggle("is-disconnected", !isConnected && !isPending);
+
+  if (isConnected) {
+    const label = engine.connectedPhone
+      ? `Motor ativo · ${engine.connectedPhone}`
+      : "Motor próprio conectado";
+    elements.engineBadgeText.textContent = label;
+    elements.engineSubtitle.textContent = engine.connectedName
+      ? `Conectado diretamente ao WhatsApp (${engine.connectedName}). Consultas diretas ativas sem API externa.`
+      : "Conectado diretamente ao WhatsApp. Consultas diretas ativas sem depender de API externa.";
+    elements.engineConnectQrButton.hidden = true;
+    elements.engineTogglePairButton.hidden = true;
+    elements.engineDisconnectButton.hidden = false;
+    elements.enginePairBox.hidden = true;
+    elements.engineAuthDisplay.hidden = true;
+    elements.engineQrWrap.hidden = true;
+    elements.engineCodeWrap.hidden = true;
+  } else {
+    elements.engineConnectQrButton.hidden = false;
+    elements.engineTogglePairButton.hidden = false;
+    elements.engineDisconnectButton.hidden = !isPending;
+
+    if (status === "qr_ready" && engine.qrDataUrl) {
+      elements.engineBadgeText.textContent = "Aguardando leitura do QR Code";
+      elements.engineQrImage.src = engine.qrDataUrl;
+      elements.engineAuthDisplay.hidden = false;
+      elements.engineQrWrap.hidden = false;
+      elements.engineCodeWrap.hidden = true;
+    } else if (status === "pairing_code_ready" && engine.pairingCode) {
+      elements.engineBadgeText.textContent = "Aguardando código no telemóvel";
+      elements.enginePairingCode.textContent = engine.pairingCode;
+      elements.engineAuthDisplay.hidden = false;
+      elements.engineQrWrap.hidden = true;
+      elements.engineCodeWrap.hidden = false;
+    } else if (status === "connecting") {
+      elements.engineBadgeText.textContent = "A iniciar conexão…";
+    } else {
+      elements.engineBadgeText.textContent = zapiConfigured
+        ? "Motor próprio desligado (Z-API ativa)"
+        : "Desconectado";
+      elements.engineAuthDisplay.hidden = true;
+      elements.engineQrWrap.hidden = true;
+      elements.engineCodeWrap.hidden = true;
+    }
+  }
+
+  if (engine.lastError) {
+    showEngineAlert(engine.lastError, true);
+  } else if (isConnected) {
+    showEngineAlert("", false);
+  }
+
+  setConnectionState(isConnected || zapiConfigured);
+
+  if (isPending && !enginePollTimer) {
+    enginePollTimer = window.setInterval(() => {
+      void refreshHealth();
+    }, 2500);
+  } else if (!isPending && enginePollTimer) {
+    window.clearInterval(enginePollTimer);
+    enginePollTimer = null;
+  }
+}
+
 async function refreshHealth() {
   try {
     const response = await fetch("/api/health", { cache: "no-store" });
     const health = await response.json();
-    setConnectionState(response.ok && health.tokenConfigured);
+    if (response.ok && health.engine) {
+      renderEngineState(health.engine, Boolean(health.zapiConfigured));
+    } else {
+      setConnectionState(response.ok && health.tokenConfigured);
+    }
   } catch {
     setConnectionState(false);
   }
 }
+
+elements.engineConnectQrButton?.addEventListener("click", async () => {
+  elements.engineConnectQrButton.disabled = true;
+  elements.enginePairBox.hidden = true;
+  showEngineAlert("A gerar QR Code de conexão direta com o WhatsApp…", false);
+  try {
+    const response = await fetch("/api/whatsapp/connect", { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Não foi possível iniciar o motor.");
+    renderEngineState(data);
+    window.setTimeout(() => void refreshHealth(), 1500);
+  } catch (error) {
+    showEngineAlert(error.message, true);
+  } finally {
+    elements.engineConnectQrButton.disabled = false;
+  }
+});
+
+elements.engineTogglePairButton?.addEventListener("click", () => {
+  elements.enginePairBox.hidden = !elements.enginePairBox.hidden;
+  if (!elements.enginePairBox.hidden) {
+    elements.enginePairPhone?.focus();
+  }
+});
+
+elements.enginePairForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const phone = elements.enginePairPhone.value.trim();
+  if (!phone) {
+    showEngineAlert("Informe o seu número de WhatsApp com o indicativo do país (ex.: +258 84 123 4567).", true);
+    return;
+  }
+  elements.engineRequestCodeButton.disabled = true;
+  showEngineAlert("A solicitar código de 8 dígitos ao WhatsApp… aguarde cerca de 3 segundos.", false);
+  try {
+    const response = await fetch("/api/whatsapp/pair", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Não foi possível gerar o código.");
+    renderEngineState(data);
+    window.setTimeout(() => void refreshHealth(), 2500);
+  } catch (error) {
+    showEngineAlert(error.message, true);
+  } finally {
+    elements.engineRequestCodeButton.disabled = false;
+  }
+});
+
+elements.engineDisconnectButton?.addEventListener("click", async () => {
+  elements.engineDisconnectButton.disabled = true;
+  try {
+    const response = await fetch("/api/whatsapp/disconnect", { method: "POST" });
+    const data = await response.json();
+    renderEngineState(data);
+    showEngineAlert("Sessão do motor próprio desconectada.", false);
+  } catch (error) {
+    showEngineAlert(error.message, true);
+  } finally {
+    elements.engineDisconnectButton.disabled = false;
+  }
+});
 
 function showSingleResult(status, title, detail) {
   elements.singleResult.className = `inline-result is-${status}`;

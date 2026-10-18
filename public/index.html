@@ -37,6 +37,61 @@
       </section>
 
       <div class="workspace-grid">
+        <section class="work-card engine-card" aria-labelledby="engineTitle">
+          <div class="engine-header">
+            <div class="engine-title-group">
+              <p class="section-kicker">MOTOR PRÓPRIO · SEM API EXTERNA</p>
+              <h2 id="engineTitle">Conexão Direta do WhatsApp</h2>
+              <p class="engine-subtitle" id="engineSubtitle">Conecte o seu próprio WhatsApp para consultar números diretamente nos servidores do WhatsApp, sem mensalidades nem APIs de terceiros.</p>
+            </div>
+            <div class="engine-status-wrap">
+              <span class="engine-badge is-disconnected" id="engineBadge">
+                <span class="engine-dot" aria-hidden="true"></span>
+                <span id="engineBadgeText">Desconectado</span>
+              </span>
+              <button class="button button-outline" id="engineConnectQrButton" type="button">Conectar por QR Code</button>
+              <button class="button button-quiet" id="engineTogglePairButton" type="button">Conectar por código</button>
+              <button class="button button-quiet" id="engineDisconnectButton" type="button" hidden>Desconectar</button>
+            </div>
+          </div>
+
+          <div class="engine-pair-box" id="enginePairBox" hidden>
+            <form class="engine-pair-form" id="enginePairForm" novalidate>
+              <label class="field-label" for="enginePairPhone">O seu número de WhatsApp (com indicativo do país)</label>
+              <div class="phone-input-row">
+                <input id="enginePairPhone" type="tel" placeholder="+258 84 123 4567" autocomplete="tel">
+                <button class="button button-primary" id="engineRequestCodeButton" type="submit">
+                  <span>Gerar código de 8 dígitos</span>
+                </button>
+              </div>
+              <p class="field-hint">No seu WhatsApp, abra <strong>Aparelhos conectados → Conectar um aparelho → Conectar com número de telefone</strong> e digite o código gerado abaixo.</p>
+            </form>
+          </div>
+
+          <div class="engine-auth-display" id="engineAuthDisplay" hidden>
+            <div class="engine-qr-wrap" id="engineQrWrap" hidden>
+              <img id="engineQrImage" alt="QR Code para conectar o WhatsApp ao motor próprio" width="220" height="220">
+              <div class="engine-qr-instructions">
+                <strong>Leia o QR Code no seu WhatsApp</strong>
+                <ol>
+                  <li>Abra o WhatsApp no seu telemóvel</li>
+                  <li>Toque em <strong>Aparelhos conectados → Conectar um aparelho</strong></li>
+                  <li>Aponte a câmara para este QR Code</li>
+                </ol>
+                <span class="field-hint">A conexão atualiza automaticamente assim que ler o código.</span>
+              </div>
+            </div>
+
+            <div class="engine-code-wrap" id="engineCodeWrap" hidden>
+              <span class="section-kicker">CÓDIGO DE EMPARELHAMENTO</span>
+              <strong class="engine-pairing-code" id="enginePairingCode">----</strong>
+              <p class="field-hint">Introduza este código na notificação do WhatsApp no seu telemóvel.</p>
+            </div>
+          </div>
+
+          <div class="inline-alert" id="engineAlert" role="status" hidden></div>
+        </section>
+
         <section class="work-card" aria-labelledby="toolTitle">
           <div class="card-heading">
             <div>
@@ -139,7 +194,7 @@
               <label class="checkbox-label" id="headerSetting">
                 <input id="hasHeader" type="checkbox">
                 <span class="checkbox-box" aria-hidden="true"></span>
-                <span>A primeira linha tem títulos de coluna</span>
+                <span >A primeira linha tem títulos de coluna</span>
               </label>
             </div>
 
@@ -153,7 +208,7 @@
                 <span>Verificar lista</span>
                 <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 10h11M10 5l5 5-5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
-              <p class="field-hint" id="batchButtonHint">Adicione os secrets ZAPI_INSTANCE_ID e ZAPI_TOKEN para ativar.</p>
+              <p class="field-hint" id="batchButtonHint">Conecte o Motor Próprio do WhatsApp acima para verificar listas sem depender de API externa.</p>
             </div>
             <div class="progress-wrap" id="progressWrap" hidden aria-live="polite">
               <div class="progress-top"><span id="progressLabel">A preparar a consulta…</span><span id="progressPercent">0%</span></div>

@@ -7,8 +7,14 @@ const {
   randomUUID,
   timingSafeEqual,
 } = require("node:crypto");
+const {
+  startWhatsAppEngine,
+  disconnectWhatsAppEngine,
+  getEngineState,
+  checkNumbersOnOwnWhatsApp,
+} = require("./whatsapp-engine");
 
-const PORT = Number(process.env.PORT || 5000);
+const PORT = Number(process.env.PORT || 3000);
 const HOST = "0.0.0.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const XLSX_BUNDLE_PATH = path.join(
@@ -60,7 +66,11 @@ function clientAddress(request) {
 }
 
 function isSiteAuthConfigured() {
-  return Boolean(process.env.SITE_PASSWORD && process.env.SESSION_SECRET);
+  return Boolean(process.env.SITE_PASSWORD);
+}
+
+function getSessionSecret() {
+  return process.env.SESSION_SECRET || "contactocheck-internal-session-secret";
 }
 
 function readCookie(request, name) {
@@ -81,13 +91,13 @@ function sessionSignature(expiresAt) {
   const passwordFingerprint = createHash("sha256")
     .update(process.env.SITE_PASSWORD, "utf8")
     .digest("hex");
-  return createHmac("sha256", process.env.SESSION_SECRET)
+  return createHmac("sha256", getSessionSecret())
     .update(`contactocheck:${expiresAt}:${passwordFingerprint}`, "utf8")
     .digest("base64url");
 }
 
 function hasValidAuthSession(request) {
-  if (!isSiteAuthConfigured()) return false;
+  if (!isSiteAuthConfigured()) return true;
 
   const value = readCookie(request, AUTH_COOKIE_NAME);
   const [expiresAtValue, signature, extra] = value.split(".");
@@ -111,7 +121,7 @@ function secureCookieAttribute(request) {
   const isHttps = request.socket.encrypted
     || (typeof forwardedProtocol === "string"
       && forwardedProtocol.split(",")[0].trim().toLowerCase() === "https");
-  return isHttps ? "; Secure" : "";
+  return isHttps ? "; SameSite=None; Secure; Partitioned" : "; SameSite=Lax";
 }
 
 function sendLoginPage(request, response, status = 200, message = "") {
@@ -171,11 +181,10 @@ function sendLoginPage(request, response, status = 200, message = "") {
 
   response.writeHead(status, {
     "Cache-Control": "no-store",
-    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'",
     "Content-Type": "text/html; charset=utf-8",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
   });
   response.end(request.method === "HEAD" ? undefined : page);
 }
@@ -265,7 +274,7 @@ async function handleLogin(request, response) {
   response.writeHead(303, {
     "Cache-Control": "no-store",
     "Location": "/",
-    "Set-Cookie": `${AUTH_COOKIE_NAME}=${sessionValue}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secureCookieAttribute(request)}`,
+    "Set-Cookie": `${AUTH_COOKIE_NAME}=${sessionValue}; HttpOnly; Path=/; Max-Age=${maxAge}${secureCookieAttribute(request)}`,
     "X-Content-Type-Options": "nosniff",
   });
   response.end();
@@ -275,7 +284,7 @@ function handleLogout(request, response) {
   response.writeHead(303, {
     "Cache-Control": "no-store",
     "Location": "/",
-    "Set-Cookie": `${AUTH_COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookieAttribute(request)}`,
+    "Set-Cookie": `${AUTH_COOKIE_NAME}=; HttpOnly; Path=/; Max-Age=0${secureCookieAttribute(request)}`,
     "X-Content-Type-Options": "nosniff",
   });
   response.end();
@@ -408,6 +417,17 @@ function wait(milliseconds) {
 }
 
 async function requestProviderContacts(phones) {
+  const engineState = getEngineState();
+  if (engineState.connected) {
+    return checkNumbersOnOwnWhatsApp(phones);
+  }
+
+  if (!process.env.ZAPI_INSTANCE_ID || !process.env.ZAPI_TOKEN) {
+    throw new Error(
+      "O motor próprio do WhatsApp não está conectado. Conecte o seu WhatsApp no painel superior (via QR Code ou código) para verificar números sem depender de API externa.",
+    );
+  }
+
   const maxAttempts = 3;
   const instanceId = encodeURIComponent(process.env.ZAPI_INSTANCE_ID);
   const token = encodeURIComponent(process.env.ZAPI_TOKEN);
@@ -577,12 +597,12 @@ async function processCheckJob(job) {
 }
 
 async function checkPhones(request, response) {
-  const instanceId = process.env.ZAPI_INSTANCE_ID;
-  const token = process.env.ZAPI_TOKEN;
-  if (!instanceId || !token) {
+  const engineState = getEngineState();
+  const zapiConfigured = Boolean(process.env.ZAPI_INSTANCE_ID && process.env.ZAPI_TOKEN);
+  if (!engineState.connected && !zapiConfigured) {
     sendJson(response, 503, {
       code: "missing_credentials",
-      error: "Adicione os secrets ZAPI_INSTANCE_ID e ZAPI_TOKEN para ativar as consultas.",
+      error: "Conecte o Motor Próprio do WhatsApp no topo da página (QR Code ou código de emparelhamento) para verificar números sem API externa.",
     });
     return;
   }
@@ -844,12 +864,64 @@ const server = http.createServer((request, response) => {
   }
 
   if (url.pathname === "/api/health" && request.method === "GET") {
+    const engineState = getEngineState();
+    const zapiConfigured = Boolean(process.env.ZAPI_INSTANCE_ID && process.env.ZAPI_TOKEN);
     sendJson(response, 200, {
-      provider: "Z-API",
-      tokenConfigured: Boolean(process.env.ZAPI_INSTANCE_ID && process.env.ZAPI_TOKEN),
+      provider: engineState.connected
+        ? "Motor Próprio (WhatsApp Direto)"
+        : zapiConfigured
+          ? "Z-API"
+          : "Motor Próprio",
+      tokenConfigured: Boolean(engineState.connected || zapiConfigured),
+      ownEngineConnected: engineState.connected,
+      zapiConfigured,
+      engine: engineState,
       maxNumbersPerConsultation: MAX_NUMBERS_PER_CONSULTATION,
       providerBatchSize: PROVIDER_BATCH_SIZE,
     });
+    return;
+  }
+
+  if (url.pathname === "/api/whatsapp/status" && request.method === "GET") {
+    sendJson(response, 200, getEngineState());
+    return;
+  }
+
+  if (url.pathname === "/api/whatsapp/connect" && request.method === "POST") {
+    void startWhatsAppEngine({ resetSession: true })
+      .then((state) => sendJson(response, 200, state))
+      .catch((error) => sendJson(response, 500, { error: error.message }));
+    return;
+  }
+
+  if (url.pathname === "/api/whatsapp/pair" && request.method === "POST") {
+    void (async () => {
+      try {
+        const body = await readJson(request);
+        const rawPhone = String(body?.phone || "").trim();
+        const cleanDigits = digitsOnly(rawPhone);
+        if (cleanDigits.length < 8 || cleanDigits.length > 15) {
+          sendJson(response, 400, {
+            error: "Informe o número com indicativo do país (ex.: +258 84 123 4567).",
+          });
+          return;
+        }
+        const state = await startWhatsAppEngine({
+          resetSession: true,
+          requestPairingForPhone: `+${cleanDigits}`,
+        });
+        sendJson(response, 200, state);
+      } catch (error) {
+        sendJson(response, error.statusCode || 500, { error: error.message });
+      }
+    })();
+    return;
+  }
+
+  if (url.pathname === "/api/whatsapp/disconnect" && request.method === "POST") {
+    void disconnectWhatsAppEngine()
+      .then((state) => sendJson(response, 200, state))
+      .catch((error) => sendJson(response, 500, { error: error.message }));
     return;
   }
 

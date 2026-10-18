@@ -1675,3 +1675,144 @@ td:first-child {
     justify-content: flex-start;
   }
 }
+
+.engine-card {
+  min-height: auto;
+  padding: 22px 27px;
+}
+
+.engine-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.engine-title-group {
+  flex: 1 1 320px;
+}
+
+.engine-title-group h2 {
+  margin: 6px 0 4px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.engine-subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.engine-status-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.engine-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  border: 1px solid var(--line);
+  background: #f7faf8;
+  color: var(--soft-ink);
+}
+
+.engine-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9aa6a0;
+}
+
+.engine-badge.is-connected {
+  background: var(--green-pale);
+  border-color: #cce5d8;
+  color: var(--green-dark);
+}
+
+.engine-badge.is-connected .engine-dot {
+  background: var(--green);
+}
+
+.engine-badge.is-pending {
+  background: #fff8eb;
+  border-color: #f3dfb8;
+  color: #8c5d15;
+}
+
+.engine-badge.is-pending .engine-dot {
+  background: #d99026;
+}
+
+.engine-pair-box {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.engine-auth-display {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.engine-qr-wrap {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.engine-qr-wrap img {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px;
+  background: #fff;
+}
+
+.engine-qr-instructions {
+  flex: 1 1 240px;
+}
+
+.engine-qr-instructions strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.engine-qr-instructions ol {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  color: var(--soft-ink);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.engine-code-wrap {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid #cce5d8;
+  border-radius: 12px;
+  background: #f7fcf9;
+  text-align: center;
+}
+
+.engine-pairing-code {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: var(--green-dark);
+}
+

@@ -50,9 +50,24 @@ const PROTECTION_PROFILES = {
     longPauseMinMs: 75000,    // 1m15s a 2 min a cada 250 números
     longPauseMaxMs: 120000,
   },
+  batch100: {
+    id: "batch100",
+    label: "Agressivo Controlado (100 números por pausa)",
+    minBatch: 15,
+    maxBatch: 25,
+    minDelayMs: 900,
+    maxDelayMs: 1800,
+    exactPauseBoundary: true,
+    shortPauseEvery: 100,
+    shortPauseMinMs: 45000,   // Pausa de 45s a 75s a cada 100 números exatos
+    shortPauseMaxMs: 75000,
+    longPauseEvery: 400,
+    longPauseMinMs: 95000,    // Pausa longa de 1m35s a 2m20s a cada 400 números
+    longPauseMaxMs: 140000,
+  },
 };
 
-let currentProtectionMode = "safe";
+let currentProtectionMode = "batch100";
 let baileysModulePromise = null;
 let sock = null;
 let connectionStatus = "disconnected"; // disconnected | connecting | qr_ready | pairing_code_ready | connected
@@ -613,17 +628,26 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
     // 3. Processar toda a lista continuamente com pausas longas automáticas (sem pedir clique!)
     let cursor = 0;
     let queriedInThisRun = 0;
-    let nextShortPauseAt = profile.shortPauseEvery + randomInt(-5, 6);
-    let nextLongPauseAt = profile.longPauseEvery + randomInt(-15, 15);
+    const isExact100 = Boolean(profile.exactPauseBoundary);
+    let nextShortPauseAt = isExact100
+      ? profile.shortPauseEvery
+      : profile.shortPauseEvery + randomInt(-5, 6);
+    let nextLongPauseAt = isExact100
+      ? profile.longPauseEvery
+      : profile.longPauseEvery + randomInt(-15, 15);
 
     while (cursor < phonesToQuery.length) {
       if (shouldAbort?.()) {
         break;
       }
 
-      const batchSize = phonesToQuery.length === 1
+      const remainingUntilPause = Math.max(1, nextShortPauseAt - queriedInThisRun);
+      const rawBatchSize = phonesToQuery.length === 1
         ? 1
         : randomInt(profile.minBatch, profile.maxBatch);
+      const batchSize = isExact100
+        ? Math.min(rawBatchSize, remainingUntilPause)
+        : rawBatchSize;
       const slice = phonesToQuery.slice(cursor, cursor + batchSize);
       cursor += slice.length;
 
@@ -674,10 +698,13 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
       // Se ainda faltam números na lista, aplica a pausa adequada e continua sozinho automaticamente!
       if (cursor < phonesToQuery.length) {
         if (queriedInThisRun >= nextLongPauseAt) {
-          // Pausa Longa Automática (2 a 4,5 minutos dependendo do perfil)
           const longPauseMs = randomInt(profile.longPauseMinMs, profile.longPauseMaxMs);
-          nextLongPauseAt = queriedInThisRun + profile.longPauseEvery + randomInt(-15, 15);
-          nextShortPauseAt = queriedInThisRun + profile.shortPauseEvery + randomInt(-5, 6);
+          nextLongPauseAt = isExact100
+            ? queriedInThisRun + profile.longPauseEvery
+            : queriedInThisRun + profile.longPauseEvery + randomInt(-15, 15);
+          nextShortPauseAt = isExact100
+            ? queriedInThisRun + profile.shortPauseEvery
+            : queriedInThisRun + profile.shortPauseEvery + randomInt(-5, 6);
 
           await waitWithCountdown(
             longPauseMs,
@@ -689,15 +716,16 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
             shouldAbort,
           );
         } else if (queriedInThisRun >= nextShortPauseAt) {
-          // Pausa Média de Respiração Automática (30s a 90s dependendo do perfil)
           const shortPauseMs = randomInt(profile.shortPauseMinMs, profile.shortPauseMaxMs);
-          nextShortPauseAt = queriedInThisRun + profile.shortPauseEvery + randomInt(-5, 6);
+          nextShortPauseAt = isExact100
+            ? queriedInThisRun + profile.shortPauseEvery
+            : queriedInThisRun + profile.shortPauseEvery + randomInt(-5, 6);
 
           await waitWithCountdown(
             shortPauseMs,
             (timeText) => {
               emitProgress(
-                `Pausa de descanso Anti-Ban (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")} verificados) · Continua sozinho em ${timeText}…`,
+                `Pausa Anti-Ban de ${profile.shortPauseEvery} números (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")} verificados) · Continua sozinho em ${timeText}…`,
               );
             },
             shouldAbort,

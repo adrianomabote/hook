@@ -1816,3 +1816,29 @@ td:first-child {
   color: var(--green-dark);
 }
 
+.engine-protection-bar {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.engine-protection-control {
+  flex: 1 1 280px;
+}
+
+.engine-protection-control .select-control {
+  width: 100%;
+  max-width: 480px;
+}
+
+.engine-cache-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}

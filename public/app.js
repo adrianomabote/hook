@@ -1,5 +1,5 @@
 const MAX_UNIQUE_PER_RUN = 100_000;
-const PROVIDER_BATCH_SIZE = 1_000;
+const PROVIDER_BATCH_SIZE = 250;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_PREVIEW_ROWS = 12;
 let xlsxLibraryPromise = null;
@@ -81,6 +81,9 @@ const elements = {
   engineQrImage: document.querySelector("#engineQrImage"),
   engineCodeWrap: document.querySelector("#engineCodeWrap"),
   enginePairingCode: document.querySelector("#enginePairingCode"),
+  engineProtectionSelect: document.querySelector("#engineProtectionSelect"),
+  engineStatsText: document.querySelector("#engineStatsText"),
+  engineClearCacheButton: document.querySelector("#engineClearCacheButton"),
   engineAlert: document.querySelector("#engineAlert"),
 };
 
@@ -519,7 +522,7 @@ function showEngineAlert(message, isError = false) {
   elements.engineAlert.hidden = !message;
 }
 
-function renderEngineState(engine, zapiConfigured = false) {
+function renderEngineState(engine) {
   if (!elements.engineBadge || !engine) return;
 
   const isConnected = Boolean(engine.connected);
@@ -530,14 +533,24 @@ function renderEngineState(engine, zapiConfigured = false) {
   elements.engineBadge.classList.toggle("is-pending", !isConnected && isPending);
   elements.engineBadge.classList.toggle("is-disconnected", !isConnected && !isPending);
 
+  if (elements.engineProtectionSelect && engine.protectionMode) {
+    elements.engineProtectionSelect.value = engine.protectionMode;
+  }
+
+  if (elements.engineStatsText && engine.stats) {
+    const cacheSize = Number(engine.stats.cacheSize || 0).toLocaleString("pt-PT");
+    const last60Min = Number(engine.stats.last60Min || 0).toLocaleString("pt-PT");
+    elements.engineStatsText.textContent = `Cache Anti-Ban: ${cacheSize} números guardados · ${last60Min} consultas na última hora`;
+  }
+
   if (isConnected) {
     const label = engine.connectedPhone
       ? `Motor ativo · ${engine.connectedPhone}`
       : "Motor próprio conectado";
     elements.engineBadgeText.textContent = label;
     elements.engineSubtitle.textContent = engine.connectedName
-      ? `Conectado diretamente ao WhatsApp (${engine.connectedName}). Consultas diretas ativas sem API externa.`
-      : "Conectado diretamente ao WhatsApp. Consultas diretas ativas sem depender de API externa.";
+      ? `Conectado diretamente ao WhatsApp (${engine.connectedName}). Proteção Anti-Banimento ativa.`
+      : "Conectado diretamente ao WhatsApp. Proteção Anti-Banimento ativa.";
     elements.engineConnectQrButton.hidden = true;
     elements.engineTogglePairButton.hidden = true;
     elements.engineDisconnectButton.hidden = false;
@@ -565,9 +578,7 @@ function renderEngineState(engine, zapiConfigured = false) {
     } else if (status === "connecting") {
       elements.engineBadgeText.textContent = "A iniciar conexão…";
     } else {
-      elements.engineBadgeText.textContent = zapiConfigured
-        ? "Motor próprio desligado (Z-API ativa)"
-        : "Desconectado";
+      elements.engineBadgeText.textContent = "Desconectado";
       elements.engineAuthDisplay.hidden = true;
       elements.engineQrWrap.hidden = true;
       elements.engineCodeWrap.hidden = true;
@@ -580,7 +591,7 @@ function renderEngineState(engine, zapiConfigured = false) {
     showEngineAlert("", false);
   }
 
-  setConnectionState(isConnected || zapiConfigured);
+  setConnectionState(isConnected);
 
   if (isPending && !enginePollTimer) {
     enginePollTimer = window.setInterval(() => {
@@ -597,7 +608,7 @@ async function refreshHealth() {
     const response = await fetch("/api/health", { cache: "no-store" });
     const health = await response.json();
     if (response.ok && health.engine) {
-      renderEngineState(health.engine, Boolean(health.zapiConfigured));
+      renderEngineState(health.engine);
     } else {
       setConnectionState(response.ok && health.tokenConfigured);
     }
@@ -656,6 +667,40 @@ elements.enginePairForm?.addEventListener("submit", async (event) => {
   }
 });
 
+elements.engineProtectionSelect?.addEventListener("change", async () => {
+  const mode = elements.engineProtectionSelect.value;
+  try {
+    const response = await fetch("/api/whatsapp/protection", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    const data = await response.json();
+    if (response.ok) {
+      renderEngineState(data);
+      showEngineAlert(`Modo de proteção alterado para: ${data.protectionLabel}.`, false);
+    }
+  } catch {
+    // Ignore
+  }
+});
+
+elements.engineClearCacheButton?.addEventListener("click", async () => {
+  elements.engineClearCacheButton.disabled = true;
+  try {
+    const response = await fetch("/api/whatsapp/clear-cache", { method: "POST" });
+    const data = await response.json();
+    if (response.ok) {
+      renderEngineState(data);
+      showEngineAlert("Cache Anti-Ban limpo com sucesso.", false);
+    }
+  } catch {
+    // Ignore
+  } finally {
+    elements.engineClearCacheButton.disabled = false;
+  }
+});
+
 elements.engineDisconnectButton?.addEventListener("click", async () => {
   elements.engineDisconnectButton.disabled = true;
   try {
@@ -698,7 +743,7 @@ async function requestCheck(phones, onProgress, onPaused) {
 
   let completed = 0;
   let pollingErrors = 0;
-  onProgress?.(completed, data.total || phones.length);
+  onProgress?.(completed, data.total || phones.length, data.phaseMessage || null);
 
   while (true) {
     await new Promise((resolve) => window.setTimeout(resolve, 1000));
@@ -727,7 +772,7 @@ async function requestCheck(phones, onProgress, onPaused) {
 
     pollingErrors = 0;
     completed = Number(statusData.completed) || 0;
-    onProgress?.(completed, Number(statusData.total) || phones.length);
+    onProgress?.(completed, Number(statusData.total) || phones.length, statusData.phaseMessage || null);
 
     if (statusData.status === "completed") {
       if (!Array.isArray(statusData.results)) {
@@ -1093,9 +1138,9 @@ async function runBatchCheck() {
 
   try {
     renderProgress(0, newPhones.length, divisionProgressLabel(0, newPhones.length));
-    const results = await requestCheck(newPhones, (done, total) => {
+    const results = await requestCheck(newPhones, (done, total, phaseMessage) => {
       completed = done;
-      renderProgress(done, total, divisionProgressLabel(done, total));
+      renderProgress(done, total, phaseMessage || divisionProgressLabel(done, total));
     }, (jobId, done, total) => waitForManualContinue(jobId, done, total));
     results.forEach((result) => resultByPhone.set(result.phone, result.status));
     completed = newPhones.length;
@@ -1107,11 +1152,13 @@ async function runBatchCheck() {
     ));
     renderBatchResults();
     renderProgress(completed, newPhones.length, divisionProgressLabel(completed, newPhones.length));
+    void refreshHealth();
     const validCount = state.results.filter((record) => record.status === "valid").length;
     showBatchAlert(validCount
       ? `Verificação concluída: ${Math.ceil(newPhones.length / PROVIDER_BATCH_SIZE).toLocaleString("pt-PT")} divisões processadas. ${validCount.toLocaleString("pt-PT")} contactos confirmados na sessão. “Baixar contactos” já inclui apenas os confirmados; também pode importar mais números.`
       : `Verificação concluída: ${Math.ceil(newPhones.length / PROVIDER_BATCH_SIZE).toLocaleString("pt-PT")} divisões processadas. Não foram encontrados contactos confirmados para descarregar.`);
   } catch (error) {
+    void refreshHealth();
     (Array.isArray(error.results) ? error.results : []).forEach((result) => {
       resultByPhone.set(result.phone, result.status);
     });

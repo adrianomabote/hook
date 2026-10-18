@@ -13,9 +13,3 @@ services:
         generateValue: true
       - key: SITE_PASSWORD
         sync: false
-      - key: ZAPI_INSTANCE_ID
-        sync: false
-      - key: ZAPI_TOKEN
-        sync: false
-      - key: ZAPI_CLIENT_TOKEN
-        sync: false

@@ -11,6 +11,8 @@ const {
   startWhatsAppEngine,
   disconnectWhatsAppEngine,
   getEngineState,
+  setProtectionMode,
+  clearVerifiedCache,
   checkNumbersOnOwnWhatsApp,
 } = require("./whatsapp-engine");
 
@@ -22,20 +24,19 @@ const XLSX_BUNDLE_PATH = path.join(
   "dist",
   "xlsx.full.min.js",
 );
-const ZAPI_BASE_URL = "https://api.z-api.io/instances";
-const PROVIDER_BATCH_SIZE = 1_000;
-const MAX_SYNCHRONOUS_NUMBERS = PROVIDER_BATCH_SIZE;
+
+const DIVISION_BATCH_SIZE = 250;
+const MAX_SYNCHRONOUS_NUMBERS = 1;
 const MAX_NUMBERS_PER_CONSULTATION = 100_000;
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
-const PROVIDER_TIMEOUT_MS = 60_000;
 const RATE_WINDOW_MS = 60 * 1000;
 const MAX_REQUESTS_PER_WINDOW = 30;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 10;
 const AUTH_SESSION_MS = 12 * 60 * 60 * 1000;
 const AUTH_COOKIE_NAME = "contactocheck_session";
-const MAX_ACTIVE_JOBS_PER_ADDRESS = 1;
 const JOB_RETENTION_MS = 30 * 60 * 1000;
+
 const requestCounts = new Map();
 const loginAttempts = new Map();
 const checkJobs = new Map();
@@ -138,7 +139,7 @@ function sendLoginPage(request, response, status = 200, message = "") {
          <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
          <button type="submit">Entrar</button>
        </form>`
-    : `<p class="notice" role="alert">O acesso ainda não está configurado. Configure <strong>SITE_PASSWORD</strong> e <strong>SESSION_SECRET</strong> nas variáveis de ambiente do serviço e reinicie-o.</p>`;
+    : `<p class="notice" role="alert">O acesso ainda não está configurado. Configure <strong>SITE_PASSWORD</strong> nas variáveis de ambiente do serviço e reinicie-o.</p>`;
   const page = `<!doctype html>
 <html lang="pt">
   <head>
@@ -337,208 +338,6 @@ function digitsOnly(value) {
   return String(value || "").replace(/\D/g, "");
 }
 
-function safeProviderMessage(message) {
-  let safeMessage = typeof message === "string" ? message.replace(/\s+/g, " ").trim() : "";
-  if (!safeMessage) return "";
-
-  for (const secret of [
-    process.env.ZAPI_INSTANCE_ID,
-    process.env.ZAPI_TOKEN,
-    process.env.ZAPI_CLIENT_TOKEN,
-  ]) {
-    if (typeof secret === "string" && secret) {
-      safeMessage = safeMessage.split(secret).join("[valor oculto]");
-    }
-  }
-
-  return safeMessage
-    .replace(/https?:\/\/\S+/gi, "[URL oculto]")
-    .replace(/\+?\d(?:[\s().-]*\d){7,14}/g, "[número oculto]")
-    .replace(/\b[A-Za-z0-9_-]{24,}\b/g, "[valor oculto]")
-    .slice(0, 240);
-}
-
-function extractProviderMessage(errorBody) {
-  if (typeof errorBody === "string") return errorBody;
-  if (!errorBody || typeof errorBody !== "object") return "";
-
-  const fields = [
-    errorBody.message,
-    errorBody.error,
-    errorBody.detail,
-    errorBody.error_description,
-    errorBody.description,
-    errorBody.code,
-  ];
-  return fields.find((value) => typeof value === "string" && value.trim()) || "";
-}
-
-function providerErrorMessage(statusCode, providerMessage = "") {
-  const safeMessage = safeProviderMessage(providerMessage);
-  const normalizedMessage = safeMessage.toLowerCase();
-  if (statusCode === 401) {
-    return "A Z-API recusou as credenciais. Confira o ID e o token da instância e, se estiver ativo, o token de segurança da conta.";
-  }
-  if (statusCode === 402) {
-    return "A Z-API recusou a consulta por quota ou limite do plano. Verifique o limite da conta; números sem resposta continuam não confirmados.";
-  }
-  if (statusCode === 403) {
-    return "A Z-API não autorizou esta consulta. Confira o estado e as permissões da instância.";
-  }
-  if (statusCode === 404) {
-    return "A instância ou rota da Z-API não foi encontrada. Confira o ID da instância.";
-  }
-  if (statusCode === 429) {
-    return "A Z-API limitou temporariamente as consultas. Aguarde e tente novamente.";
-  }
-  if (statusCode === 400) {
-    if (/client-token.*not configured/.test(normalizedMessage)) {
-      return "A Z-API informa que o Token de Segurança da Conta não está configurado. Confirme a activação no painel e que ZAPI_CLIENT_TOKEN corresponde ao token activo.";
-    }
-    if (/instance not found/.test(normalizedMessage)) {
-      return "A Z-API não encontrou a instância. Confirme que o ID e o token actuais pertencem à mesma instância activa e que ambos foram guardados no Replit.";
-    }
-    if (normalizedMessage.includes("null not allowed")) {
-      return "A Z-API exige o token de segurança da conta. Confira o secret ZAPI_CLIENT_TOKEN.";
-    }
-    if (/phone|number|telefone|número/.test(normalizedMessage)) {
-      return "A Z-API rejeitou o formato do número enviado.";
-    }
-    if (safeMessage) {
-      return `A Z-API rejeitou a requisição: ${safeMessage}`;
-    }
-    return "A Z-API rejeitou a requisição. Confira o ID e token da instância e o token de segurança da conta.";
-  }
-  return `O serviço não concluiu a consulta (HTTP ${statusCode}).`;
-}
-
-function wait(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-async function requestProviderContacts(phones) {
-  const engineState = getEngineState();
-  if (engineState.connected) {
-    return checkNumbersOnOwnWhatsApp(phones);
-  }
-
-  if (!process.env.ZAPI_INSTANCE_ID || !process.env.ZAPI_TOKEN) {
-    throw new Error(
-      "O motor próprio do WhatsApp não está conectado. Conecte o seu WhatsApp no painel superior (via QR Code ou código) para verificar números sem depender de API externa.",
-    );
-  }
-
-  const maxAttempts = 3;
-  const instanceId = encodeURIComponent(process.env.ZAPI_INSTANCE_ID);
-  const token = encodeURIComponent(process.env.ZAPI_TOKEN);
-  const isSinglePhone = phones.length === 1;
-  const phonePath = isSinglePhone
-    ? `/phone-exists/${encodeURIComponent(digitsOnly(phones[0]))}`
-    : "/phone-exists-batch";
-  const endpoint = `${ZAPI_BASE_URL}/${instanceId}/token/${token}${phonePath}`;
-  const headers = {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-  };
-  if (process.env.ZAPI_CLIENT_TOKEN) {
-    headers["Client-Token"] = process.env.ZAPI_CLIENT_TOKEN;
-  }
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    let providerResponse;
-
-    try {
-      providerResponse = await fetch(endpoint, {
-        method: isSinglePhone ? "GET" : "POST",
-        headers,
-        ...(isSinglePhone ? {} : { body: JSON.stringify({ phones: phones.map(digitsOnly) }) }),
-        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
-      });
-    } catch (error) {
-      if (attempt + 1 === maxAttempts) {
-        throw new Error(
-          error.name === "TimeoutError" || error.name === "AbortError"
-            ? "A consulta demorou demais. Tente novamente."
-            : "Não foi possível conectar ao serviço. Tente novamente mais tarde.",
-        );
-      }
-      await wait(1000 * (attempt + 1));
-      continue;
-    }
-
-    if (providerResponse.status === 429 && attempt + 1 < maxAttempts) {
-      const retryAfter = Number(providerResponse.headers?.get?.("Retry-After"));
-      const delay = Number.isFinite(retryAfter) && retryAfter > 0
-        ? Math.min(retryAfter, 60) * 1000
-        : 1000 * (attempt + 1);
-      await wait(delay);
-      continue;
-    }
-
-    if (!providerResponse.ok) {
-      let providerMessage = "";
-      try {
-        const responseText = await providerResponse.clone().text();
-        let errorBody = responseText;
-        try {
-          errorBody = JSON.parse(responseText);
-        } catch {
-          // Keep a plain-text provider error available for safe sanitization.
-        }
-        providerMessage = extractProviderMessage(errorBody);
-      } catch {
-        // Keep upstream error bodies out of logs and user-facing responses.
-      }
-      const error = new Error(providerErrorMessage(providerResponse.status, providerMessage));
-      error.providerStatus = providerResponse.status;
-      throw error;
-    }
-
-    let data;
-    try {
-      data = await providerResponse.json();
-    } catch {
-      throw new Error("O serviço devolveu uma resposta que não pôde ser interpretada.");
-    }
-
-    if (
-      isSinglePhone &&
-      data &&
-      typeof data === "object" &&
-      !Array.isArray(data) &&
-      typeof data.exists === "boolean"
-    ) {
-      data = [data];
-    }
-
-    if (!Array.isArray(data)) {
-      throw new Error("A resposta da Z-API não contém a lista de resultados esperada.");
-    }
-
-    const resultByNumber = new Map();
-    for (const contact of data) {
-      const inputPhone = contact?.inputPhone ?? contact?.phone ?? contact?.outputPhone;
-      const resultPhone = typeof inputPhone === "string" && digitsOnly(inputPhone)
-        ? digitsOnly(inputPhone)
-        : isSinglePhone && typeof contact?.exists === "boolean"
-          ? digitsOnly(phones[0])
-          : "";
-      if (!resultPhone) continue;
-      const status = typeof contact?.exists === "boolean"
-        ? contact.exists ? "valid" : "invalid"
-        : "unknown";
-      resultByNumber.set(resultPhone, status);
-    }
-
-    return phones.map((phone) => ({
-      phone,
-      status: resultByNumber.get(digitsOnly(phone)) || "unknown",
-    }));
-  }
-
-  throw new Error("O serviço não concluiu a consulta. Tente novamente.");
-}
-
 function removeExpiredCheckJobs() {
   const cutoff = Date.now() - JOB_RETENTION_MS;
   for (const [jobId, job] of checkJobs) {
@@ -555,17 +354,25 @@ function removeExpiredCheckJobs() {
 async function processCheckJob(job) {
   job.status = "running";
   job.pausedAt = null;
-  const batch = job.phones.slice(job.completed, job.completed + PROVIDER_BATCH_SIZE);
+  const divisionStart = job.completed;
+  const batch = job.phones.slice(divisionStart, divisionStart + DIVISION_BATCH_SIZE);
 
   try {
-    const results = await requestProviderContacts(batch);
+    const results = await checkNumbersOnOwnWhatsApp(batch, {
+      onProgress: (progress) => {
+        job.completed = divisionStart + progress.completed;
+        job.phaseMessage = progress.phaseMessage || null;
+      },
+    });
     results.forEach((result) => {
       job.resultByNumber.set(digitsOnly(result.phone), result.status);
     });
-    job.completed += batch.length;
+    job.completed = divisionStart + batch.length;
+    job.phaseMessage = null;
   } catch (error) {
     job.status = "failed";
     job.error = error.message;
+    job.phaseMessage = null;
   }
 
   if (job.status === "failed" || job.completed >= job.total) {
@@ -598,11 +405,10 @@ async function processCheckJob(job) {
 
 async function checkPhones(request, response) {
   const engineState = getEngineState();
-  const zapiConfigured = Boolean(process.env.ZAPI_INSTANCE_ID && process.env.ZAPI_TOKEN);
-  if (!engineState.connected && !zapiConfigured) {
+  if (!engineState.connected) {
     sendJson(response, 503, {
       code: "missing_credentials",
-      error: "Conecte o Motor Próprio do WhatsApp no topo da página (QR Code ou código de emparelhamento) para verificar números sem API externa.",
+      error: "Conecte o Motor Próprio do WhatsApp no topo da página (via QR Code ou código de 8 dígitos) para verificar os números.",
     });
     return;
   }
@@ -638,7 +444,7 @@ async function checkPhones(request, response) {
   if (normalizedPhones.some((phone) => !phone)) {
     sendJson(response, 400, {
       code: "invalid_phone",
-      error: "Todos os números devem estar no formato internacional, por exemplo +351912345678.",
+      error: "Todos os números devem estar no formato internacional, por exemplo +258841234567.",
     });
     return;
   }
@@ -673,6 +479,7 @@ async function checkPhones(request, response) {
       total: phones.length,
       completed: 0,
       status: "queued",
+      phaseMessage: "A preparar verificação com proteção Anti-Banimento…",
       resultByNumber: new Map(),
       results: null,
       error: null,
@@ -689,17 +496,17 @@ async function checkPhones(request, response) {
       status: job.status,
       total: job.total,
       completed: job.completed,
+      phaseMessage: job.phaseMessage,
     });
     return;
   }
 
   try {
-    const results = await requestProviderContacts(phones);
+    const results = await checkNumbersOnOwnWhatsApp(phones);
     sendJson(response, 200, { results });
   } catch (error) {
     sendJson(response, 502, {
-      code: error.providerStatus ? "provider_error" : "provider_unavailable",
-      providerStatus: error.providerStatus,
+      code: "engine_error",
       error: error.message,
     });
   }
@@ -721,6 +528,7 @@ function getCheckJob(request, response, jobId) {
     status: job.status,
     total: job.total,
     completed: job.completed,
+    phaseMessage: job.phaseMessage || null,
     results: job.results,
     error: job.error,
   });
@@ -740,6 +548,7 @@ function continueCheckJob(request, response, jobId) {
   if (job.status === "paused") {
     job.pausedAt = null;
     job.status = "queued";
+    job.phaseMessage = "A retomar a próxima divisão em modo seguro…";
     setImmediate(() => {
       void processCheckJob(job);
     });
@@ -748,6 +557,7 @@ function continueCheckJob(request, response, jobId) {
       status: job.status,
       total: job.total,
       completed: job.completed,
+      phaseMessage: job.phaseMessage,
     });
     return;
   }
@@ -758,6 +568,7 @@ function continueCheckJob(request, response, jobId) {
       status: job.status,
       total: job.total,
       completed: job.completed,
+      phaseMessage: job.phaseMessage,
     });
     return;
   }
@@ -768,6 +579,7 @@ function continueCheckJob(request, response, jobId) {
       status: job.status,
       total: job.total,
       completed: job.completed,
+      phaseMessage: null,
       results: job.results,
       error: job.error,
     });
@@ -850,7 +662,7 @@ const server = http.createServer((request, response) => {
         code: "authentication_required",
         error: isSiteAuthConfigured()
           ? "Introduza a palavra-passe para continuar."
-          : "O acesso ainda não está configurado. Configure SITE_PASSWORD e SESSION_SECRET nas variáveis de ambiente do serviço e reinicie-o.",
+          : "O acesso ainda não está configurado. Configure SITE_PASSWORD nas variáveis de ambiente do serviço e reinicie-o.",
       });
     } else if (request.method === "GET" || request.method === "HEAD") {
       sendLoginPage(request, response);
@@ -865,19 +677,13 @@ const server = http.createServer((request, response) => {
 
   if (url.pathname === "/api/health" && request.method === "GET") {
     const engineState = getEngineState();
-    const zapiConfigured = Boolean(process.env.ZAPI_INSTANCE_ID && process.env.ZAPI_TOKEN);
     sendJson(response, 200, {
-      provider: engineState.connected
-        ? "Motor Próprio (WhatsApp Direto)"
-        : zapiConfigured
-          ? "Z-API"
-          : "Motor Próprio",
-      tokenConfigured: Boolean(engineState.connected || zapiConfigured),
+      provider: "Motor Próprio",
+      tokenConfigured: engineState.connected,
       ownEngineConnected: engineState.connected,
-      zapiConfigured,
       engine: engineState,
       maxNumbersPerConsultation: MAX_NUMBERS_PER_CONSULTATION,
-      providerBatchSize: PROVIDER_BATCH_SIZE,
+      providerBatchSize: DIVISION_BATCH_SIZE,
     });
     return;
   }
@@ -915,6 +721,25 @@ const server = http.createServer((request, response) => {
         sendJson(response, error.statusCode || 500, { error: error.message });
       }
     })();
+    return;
+  }
+
+  if (url.pathname === "/api/whatsapp/protection" && request.method === "POST") {
+    void (async () => {
+      try {
+        const body = await readJson(request);
+        const state = setProtectionMode(String(body?.mode || "safe"));
+        sendJson(response, 200, state);
+      } catch (error) {
+        sendJson(response, error.statusCode || 400, { error: error.message });
+      }
+    })();
+    return;
+  }
+
+  if (url.pathname === "/api/whatsapp/clear-cache" && request.method === "POST") {
+    clearVerifiedCache();
+    sendJson(response, 200, getEngineState());
     return;
   }
 
@@ -956,5 +781,5 @@ const server = http.createServer((request, response) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`WhatsApp number checker listening on ${HOST}:${PORT}`);
+  console.log(`ContactoCheck listening on ${HOST}:${PORT}`);
 });

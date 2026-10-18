@@ -456,13 +456,13 @@ function updateBatchButton() {
   if (state.session.concluded) {
     elements.batchButtonHint.textContent = "A sessão foi concluída. Inicie uma nova sessão para verificar outra lista.";
   } else if (!state.tokenConfigured) {
-    elements.batchButtonHint.textContent = "Conecte o Motor Próprio do WhatsApp acima (via QR Code ou código) para verificar números sem depender de API externa.";
+    elements.batchButtonHint.textContent = "Conecte o Motor Próprio do WhatsApp acima (via QR Code ou código) para verificar os números.";
   } else if (!hasData) {
     elements.batchButtonHint.textContent = "Importe CSV, TXT ou Excel, ou cole uma lista de números.";
   } else {
     elements.batchButtonHint.textContent = state.session.started
-      ? `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números novos por lista, em divisões de ${PROVIDER_BATCH_SIZE.toLocaleString("pt-PT")}. Cada divisão espera o seu clique; números já consultados não são repetidos.`
-      : `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos por lista, em divisões de ${PROVIDER_BATCH_SIZE.toLocaleString("pt-PT")}. Cada divisão espera o seu clique; não são enviadas mensagens.`;
+      ? `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números novos por lista. O sistema faz pausas longas Anti-Ban e continua sozinho automaticamente até terminar.`
+      : `Até ${MAX_UNIQUE_PER_RUN.toLocaleString("pt-PT")} números únicos por lista. O sistema faz pausas longas Anti-Ban e continua sozinho automaticamente até terminar.`;
   }
 
   elements.batchSessionHint.hidden = !state.session.started || state.session.concluded;
@@ -772,7 +772,12 @@ async function requestCheck(phones, onProgress, onPaused) {
 
     pollingErrors = 0;
     completed = Number(statusData.completed) || 0;
-    onProgress?.(completed, Number(statusData.total) || phones.length, statusData.phaseMessage || null);
+    onProgress?.(
+      completed,
+      Number(statusData.total) || phones.length,
+      statusData.phaseMessage || null,
+      Array.isArray(statusData.partialResults) ? statusData.partialResults : null,
+    );
 
     if (statusData.status === "completed") {
       if (!Array.isArray(statusData.results)) {
@@ -1138,10 +1143,27 @@ async function runBatchCheck() {
 
   try {
     renderProgress(0, newPhones.length, divisionProgressLabel(0, newPhones.length));
-    const results = await requestCheck(newPhones, (done, total, phaseMessage) => {
-      completed = done;
-      renderProgress(done, total, phaseMessage || divisionProgressLabel(done, total));
-    }, (jobId, done, total) => waitForManualContinue(jobId, done, total));
+    const results = await requestCheck(
+      newPhones,
+      (done, total, phaseMessage, partialResults) => {
+        completed = done;
+        renderProgress(done, total, phaseMessage || divisionProgressLabel(done, total));
+        if (Array.isArray(partialResults) && partialResults.length > 0) {
+          partialResults.forEach((item) => {
+            if (item && item.phone && item.status) {
+              resultByPhone.set(item.phone, item.status);
+            }
+          });
+          replaceSessionBatchResults(batchStart, records, (record) => (
+            record.phone
+              ? (resultByPhone.get(record.phone) || previousStatusByPhone.get(record.phone) || "pending")
+              : "invalid_format"
+          ));
+          renderBatchResults();
+        }
+      },
+      (jobId, done, total) => waitForManualContinue(jobId, done, total),
+    );
     results.forEach((result) => resultByPhone.set(result.phone, result.status));
     completed = newPhones.length;
 
@@ -1151,12 +1173,12 @@ async function runBatchCheck() {
         : "invalid_format"
     ));
     renderBatchResults();
-    renderProgress(completed, newPhones.length, divisionProgressLabel(completed, newPhones.length));
+    renderProgress(completed, newPhones.length, `${completed.toLocaleString("pt-PT")} de ${newPhones.length.toLocaleString("pt-PT")} números verificados com sucesso`);
     void refreshHealth();
     const validCount = state.results.filter((record) => record.status === "valid").length;
     showBatchAlert(validCount
-      ? `Verificação concluída: ${Math.ceil(newPhones.length / PROVIDER_BATCH_SIZE).toLocaleString("pt-PT")} divisões processadas. ${validCount.toLocaleString("pt-PT")} contactos confirmados na sessão. “Baixar contactos” já inclui apenas os confirmados; também pode importar mais números.`
-      : `Verificação concluída: ${Math.ceil(newPhones.length / PROVIDER_BATCH_SIZE).toLocaleString("pt-PT")} divisões processadas. Não foram encontrados contactos confirmados para descarregar.`);
+      ? `Verificação automática concluída: ${newPhones.length.toLocaleString("pt-PT")} números processados. ${validCount.toLocaleString("pt-PT")} contactos confirmados na sessão. “Baixar contactos” já inclui apenas os confirmados.`
+      : `Verificação automática concluída: ${newPhones.length.toLocaleString("pt-PT")} números processados. Não foram encontrados contactos confirmados para descarregar.`);
   } catch (error) {
     void refreshHealth();
     (Array.isArray(error.results) ? error.results : []).forEach((result) => {
@@ -1231,11 +1253,11 @@ function renderBatchResults() {
   elements.formatCount.textContent = counts.invalid_format.toLocaleString("pt-PT");
   elements.unknownCount.textContent = counts.unknown.toLocaleString("pt-PT");
   elements.tableSubtitle.textContent = `${rows.length.toLocaleString("pt-PT")} linhas • as consultas não enviam mensagens`;
-  const hasValidContacts = counts.valid > 0 && !state.checking;
+  const hasValidContacts = counts.valid > 0;
   elements.exportValidButton.disabled = !hasValidContacts;
   elements.copyValidButton.disabled = !hasValidContacts;
   elements.exportFormat.disabled = !hasValidContacts;
-  elements.exportInvalidButton.disabled = counts.invalid === 0 || state.checking;
+  elements.exportInvalidButton.disabled = counts.invalid === 0;
   elements.exportAllButton.disabled = rows.length === 0 || state.checking || counts.unknown > 0;
   elements.exportAllButton.title = counts.unknown > 0
     ? "Conclua a verificação antes de exportar resultados não confirmados."

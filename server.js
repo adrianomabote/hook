@@ -25,7 +25,7 @@ const XLSX_BUNDLE_PATH = path.join(
   "xlsx.full.min.js",
 );
 
-const DIVISION_BATCH_SIZE = 250;
+const DIVISION_BATCH_SIZE = 200;
 const MAX_SYNCHRONOUS_NUMBERS = 1;
 const MAX_NUMBERS_PER_CONSULTATION = 100_000;
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
@@ -35,7 +35,7 @@ const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 10;
 const AUTH_SESSION_MS = 12 * 60 * 60 * 1000;
 const AUTH_COOKIE_NAME = "contactocheck_session";
-const JOB_RETENTION_MS = 30 * 60 * 1000;
+const JOB_RETENTION_MS = 6 * 60 * 60 * 1000;
 
 const requestCounts = new Map();
 const loginAttempts = new Map();
@@ -354,20 +354,24 @@ function removeExpiredCheckJobs() {
 async function processCheckJob(job) {
   job.status = "running";
   job.pausedAt = null;
-  const divisionStart = job.completed;
-  const batch = job.phones.slice(divisionStart, divisionStart + DIVISION_BATCH_SIZE);
 
   try {
-    const results = await checkNumbersOnOwnWhatsApp(batch, {
+    const results = await checkNumbersOnOwnWhatsApp(job.phones, {
       onProgress: (progress) => {
-        job.completed = divisionStart + progress.completed;
+        job.completed = progress.completed;
         job.phaseMessage = progress.phaseMessage || null;
+        if (Array.isArray(progress.latestBatchResults)) {
+          for (const item of progress.latestBatchResults) {
+            job.resultByNumber.set(digitsOnly(item.phone), item.status);
+            job.partialResults.push(item);
+          }
+        }
       },
     });
     results.forEach((result) => {
       job.resultByNumber.set(digitsOnly(result.phone), result.status);
     });
-    job.completed = divisionStart + batch.length;
+    job.completed = job.phones.length;
     job.phaseMessage = null;
   } catch (error) {
     job.status = "failed";
@@ -375,31 +379,15 @@ async function processCheckJob(job) {
     job.phaseMessage = null;
   }
 
-  if (job.status === "failed" || job.completed >= job.total) {
-    job.results = job.phones.map((phone) => ({
-      phone,
-      status: job.resultByNumber.get(digitsOnly(phone)) || "unknown",
-    }));
-    job.phones = null;
-    job.resultByNumber = null;
-    job.finishedAt = Date.now();
-    if (job.status !== "failed") job.status = "completed";
-    const cleanupTimer = setTimeout(() => checkJobs.delete(job.id), JOB_RETENTION_MS);
-    cleanupTimer.unref?.();
-    return;
-  }
-
-  job.status = "paused";
-  job.pausedAt = Date.now();
-  job.pauseVersion = (job.pauseVersion || 0) + 1;
-  const pauseVersion = job.pauseVersion;
-  const cleanupTimer = setTimeout(() => {
-    if (checkJobs.get(job.id) === job && job.status === "paused" && job.pauseVersion === pauseVersion) {
-      checkJobs.delete(job.id);
-      job.phones = null;
-      job.resultByNumber = null;
-    }
-  }, JOB_RETENTION_MS);
+  job.results = job.phones.map((phone) => ({
+    phone,
+    status: job.resultByNumber.get(digitsOnly(phone)) || "unknown",
+  }));
+  job.phones = null;
+  job.resultByNumber = null;
+  job.finishedAt = Date.now();
+  if (job.status !== "failed") job.status = "completed";
+  const cleanupTimer = setTimeout(() => checkJobs.delete(job.id), JOB_RETENTION_MS);
   cleanupTimer.unref?.();
 }
 
@@ -479,8 +467,9 @@ async function checkPhones(request, response) {
       total: phones.length,
       completed: 0,
       status: "queued",
-      phaseMessage: "A preparar verificação com proteção Anti-Banimento…",
+      phaseMessage: "A preparar verificação automática com proteção Anti-Banimento…",
       resultByNumber: new Map(),
+      partialResults: [],
       results: null,
       error: null,
       finishedAt: null,
@@ -529,6 +518,7 @@ function getCheckJob(request, response, jobId) {
     total: job.total,
     completed: job.completed,
     phaseMessage: job.phaseMessage || null,
+    partialResults: job.partialResults || [],
     results: job.results,
     error: job.error,
   });

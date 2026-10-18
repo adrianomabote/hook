@@ -13,33 +13,42 @@ const PROTECTION_PROFILES = {
     label: "Ultra-Blindado (Contas novas)",
     minBatch: 2,
     maxBatch: 4,
-    minDelayMs: 4200,
-    maxDelayMs: 7500,
-    cooldownEvery: 40,
-    cooldownMinMs: 22000,
-    cooldownMaxMs: 35000,
+    minDelayMs: 5500,
+    maxDelayMs: 9500,
+    shortPauseEvery: 40,
+    shortPauseMinMs: 60000,   // 1 min a 1m30s a cada 40 números
+    shortPauseMaxMs: 90000,
+    longPauseEvery: 160,
+    longPauseMinMs: 180000,   // 3 min a 4m30s a cada 160 números
+    longPauseMaxMs: 270000,
   },
   safe: {
     id: "safe",
     label: "Seguro Anti-Ban (Recomendado)",
-    minBatch: 4,
-    maxBatch: 8,
-    minDelayMs: 2400,
-    maxDelayMs: 4800,
-    cooldownEvery: 70,
-    cooldownMinMs: 14000,
-    cooldownMaxMs: 24000,
+    minBatch: 3,
+    maxBatch: 6,
+    minDelayMs: 3500,
+    maxDelayMs: 6500,
+    shortPauseEvery: 50,
+    shortPauseMinMs: 45000,   // 45s a 75s a cada 50 números
+    shortPauseMaxMs: 75000,
+    longPauseEvery: 200,
+    longPauseMinMs: 120000,   // 2 min a 3m30s a cada 200 números
+    longPauseMaxMs: 210000,
   },
   moderate: {
     id: "moderate",
     label: "Equilibrado (Contas antigas)",
-    minBatch: 8,
-    maxBatch: 14,
-    minDelayMs: 1500,
-    maxDelayMs: 3000,
-    cooldownEvery: 110,
-    cooldownMinMs: 10000,
-    cooldownMaxMs: 16000,
+    minBatch: 6,
+    maxBatch: 10,
+    minDelayMs: 2200,
+    maxDelayMs: 4200,
+    shortPauseEvery: 80,
+    shortPauseMinMs: 30000,   // 30s a 50s a cada 80 números
+    shortPauseMaxMs: 50000,
+    longPauseEvery: 250,
+    longPauseMinMs: 75000,    // 1m15s a 2 min a cada 250 números
+    longPauseMaxMs: 120000,
   },
 };
 
@@ -56,10 +65,10 @@ let lastError = null;
 let reconnectTimer = null;
 let isInitializing = false;
 
-// Controlo de fadiga e fila exclusiva para nunca disparar consultas paralelas ao WhatsApp
+// Fila exclusiva para nunca disparar consultas paralelas ao WhatsApp
 let activeQueryLock = Promise.resolve();
-const recentQueryTimestamps = []; // timestamps de cada número realmente enviado ao WhatsApp
-const verifiedCache = new Map(); // digits -> { status: "valid" | "invalid", updatedAt: number }
+const recentQueryTimestamps = [];
+const verifiedCache = new Map();
 
 function loadCacheFromDisk() {
   try {
@@ -136,8 +145,27 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function formatRemainingTime(seconds) {
+  const sec = Math.max(1, Math.ceil(seconds));
+  if (sec < 60) return `${sec}s`;
+  const minutes = Math.floor(sec / 60);
+  const remSec = sec % 60;
+  return remSec > 0 ? `${minutes}m ${remSec}s` : `${minutes}m`;
+}
+
+async function waitWithCountdown(totalMs, onTick, shouldAbort) {
+  const endAt = Date.now() + totalMs;
+  while (Date.now() < endAt) {
+    if (shouldAbort?.()) return;
+    const remainingMs = endAt - Date.now();
+    const remainingSec = Math.ceil(remainingMs / 1000);
+    onTick?.(formatRemainingTime(remainingSec), remainingSec);
+    await wait(Math.min(1000, remainingMs));
+  }
+}
+
 function pruneRecentQueries() {
-  const cutoff = Date.now() - 60 * 60 * 1000; // última 1 hora
+  const cutoff = Date.now() - 60 * 60 * 1000;
   while (recentQueryTimestamps.length > 0 && recentQueryTimestamps[0] < cutoff) {
     recentQueryTimestamps.shift();
   }
@@ -162,26 +190,20 @@ function setProtectionMode(mode) {
   return getEngineState();
 }
 
-// Pré-filtro local para não enviar números estruturalmente impossíveis ao WhatsApp
-// (Consultar muitos números inexistentes seguidos é o principal gatilho de banimento da Meta)
 function isPlausibleWhatsAppNumber(phoneDigits) {
   if (!phoneDigits || phoneDigits.length < 8 || phoneDigits.length > 15) return false;
-  if (/^(\d)\1{6,}$/.test(phoneDigits.slice(-8))) return false; // ex: 99999999, 00000000
+  if (/^(\d)\1{6,}$/.test(phoneDigits.slice(-8))) return false;
   if (phoneDigits.endsWith("12345678") || phoneDigits.endsWith("87654321")) return false;
 
-  // Moçambique (+258): 258 + 9 dígitos (móveis 82, 83, 84, 85, 86, 87 ou fixo 2)
   if (phoneDigits.startsWith("258")) {
     return /^258(8[2-7]\d{7}|2\d{7,8})$/.test(phoneDigits);
   }
-  // Angola (+244): 244 + 9 dígitos (móveis 91-99 ou fixo 22)
   if (phoneDigits.startsWith("244")) {
     return /^244(9[1-9]\d{7}|2\d{8})$/.test(phoneDigits);
   }
-  // Portugal (+351): 351 + 9 dígitos (91, 92, 93, 96 ou fixo 2/3)
   if (phoneDigits.startsWith("351")) {
     return /^351(9[1236]\d{7}|[23]\d{8})$/.test(phoneDigits);
   }
-  // Brasil (+55): 55 + 2 dígitos DDD (11-99) + 8 ou 9 dígitos
   if (phoneDigits.startsWith("55")) {
     return /^55[1-9][1-9](\d{8}|9\d{8})$/.test(phoneDigits);
   }
@@ -441,11 +463,25 @@ function setCachedStatus(phoneDigits, status) {
   scheduleSaveCache();
 }
 
-async function queryMicroBatchWithRetry(formattedSlice) {
-  const maxAttempts = 2;
+async function waitForConnectionRecovery(maxWaitMs = 45000, onProgressCallback = null) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (sock && connectionStatus === "connected") return true;
+    const remSec = Math.ceil((maxWaitMs - (Date.now() - start)) / 1000);
+    onProgressCallback?.(`A aguardar reconexão automática do WhatsApp (${remSec}s)…`);
+    await wait(1000);
+  }
+  return Boolean(sock && connectionStatus === "connected");
+}
+
+async function queryMicroBatchWithRetry(formattedSlice, onWaitStatus) {
+  const maxAttempts = 3;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     if (!sock || connectionStatus !== "connected") {
-      throw new Error("A conexão com o WhatsApp foi interrompida. Aguarde a reconexão automática ou conecte novamente.");
+      const recovered = await waitForConnectionRecovery(45000, onWaitStatus);
+      if (!recovered) {
+        throw new Error("A conexão com o WhatsApp foi interrompida. Verifique se o aparelho permanece conectado.");
+      }
     }
     try {
       const response = await sock.onWhatsApp(...formattedSlice);
@@ -453,17 +489,23 @@ async function queryMicroBatchWithRetry(formattedSlice) {
     } catch (err) {
       const msg = String(err?.message || "").toLowerCase();
       if (msg.includes("rate") || msg.includes("429") || msg.includes("timeout") || msg.includes("timed out")) {
-        // Arrefecimento de emergência se o WhatsApp sinalizar lentidão/rate-limit
         if (attempt + 1 < maxAttempts) {
-          await wait(25000);
+          const emergencyMs = 90000; // 1m30s de pausa automática de emergência antes de continuar sozinho
+          await waitWithCountdown(emergencyMs, (timeText) => {
+            onWaitStatus?.(
+              `Pausa de segurança Anti-Ban (WhatsApp pediu abrandamento) · retoma automaticamente em ${timeText}…`,
+            );
+          });
           continue;
         }
         throw new Error(
-          "O WhatsApp sinalizou limite de ritmo (proteção anti-banimento ativada). A verificação foi pausada para proteger o seu número; aguarde alguns minutos antes de continuar.",
+          "O WhatsApp sinalizou limite de ritmo. A verificação foi interrompida para proteger o seu número.",
         );
       }
       if (attempt + 1 < maxAttempts) {
-        await wait(4000);
+        await waitWithCountdown(15000, (timeText) => {
+          onWaitStatus?.(`Pausa de estabilização da ligação · retoma automaticamente em ${timeText}…`);
+        });
         continue;
       }
       throw new Error(
@@ -475,11 +517,9 @@ async function queryMicroBatchWithRetry(formattedSlice) {
 }
 
 /**
- * Verifica números usando o Motor Próprio com Blindagem Anti-Banimento:
- * - Cache persistente de 7 dias (não consulta números repetidos entre ficheiros)
- * - Pré-validação estrutural local por país (não envia números impossíveis ao WhatsApp)
- * - Micro-lotes aleatórios + Jitter humano + Pausas de arrefecimento periódicas
- * - Arrefecimento automático quando outro ficheiro foi verificado recentemente
+ * Verifica números usando o Motor Próprio com Blindagem Anti-Banimento e Continuação 100% Automática:
+ * - Quando atinge o limite de cada bloco, faz uma pausa longa com contagem decrescente ao vivo
+ *   e depois CONTINUA AUTOMATICAMENTE sem precisar de clique manual!
  */
 async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
   const { onProgress = null, shouldAbort = null } = options;
@@ -492,7 +532,6 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
     throw error;
   }
 
-  // Garante execução estritamente sequencial (nunca envia 2 listas em simultâneo na mesma conta)
   let releaseLock;
   const previousLock = activeQueryLock;
   activeQueryLock = new Promise((resolve) => {
@@ -531,45 +570,57 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
       phonesToQuery.push(phone);
     }
 
-    if (onProgress && completedCount > 0) {
-      onProgress({
+    const emitProgress = (phaseMessage, latestBatchResults = null) => {
+      onProgress?.({
         completed: completedCount,
         total: phones.length,
         cachedHits,
         preFiltered,
-        phaseMessage: `${completedCount} de ${phones.length} resolvidos instantaneamente (${cachedHits} em cache anti-ban)…`,
+        phaseMessage,
+        latestBatchResults,
       });
+    };
+
+    if (completedCount > 0) {
+      const initialResolved = phones
+        .filter((p) => resultByDigits.has(digitsOnly(p)))
+        .map((p) => ({ phone: p, status: resultByDigits.get(digitsOnly(p)) }));
+      emitProgress(
+        `${completedCount} de ${phones.length} resolvidos instantaneamente (${cachedHits} em cache anti-ban)…`,
+        initialResolved,
+      );
     }
 
-    // 2. Se existem números novos para consultar no WhatsApp, verificar fadiga recente da conta
+    // 2. Se o utilizador acabou de verificar outro ficheiro recentemente, faz uma pausa longa automática antes de começar
     if (phonesToQuery.length > 0) {
       const stats = getRecentQueryStats();
-      // Se já verificou muitos números nos últimos 15 minutos (ex.: segundo ficheiro consecutivo),
-      // faz um arrefecimento preventivo antes de começar a nova remessa!
-      if (stats.last15Min >= 300 && phonesToQuery.length > 10) {
-        const preCooldownSec = stats.last15Min >= 700 ? 30 : 18;
-        onProgress?.({
-          completed: completedCount,
-          total: phones.length,
-          cachedHits,
-          preFiltered,
-          phaseMessage: `Proteção Anti-Ban: a conta verificou ${stats.last15Min} números recentemente. A aguardar ${preCooldownSec}s de arrefecimento antes deste lote…`,
-        });
-        await wait(preCooldownSec * 1000);
+      if (stats.last15Min >= 180 && phonesToQuery.length > 5) {
+        const preCooldownMs = stats.last15Min >= 500
+          ? randomInt(120000, 180000) // 2 a 3 minutos
+          : randomInt(60000, 100000); // 1m a 1m40s
+        await waitWithCountdown(
+          preCooldownMs,
+          (timeText) => {
+            emitProgress(
+              `Proteção entre ficheiros (${stats.last15Min} números recentes) · Pausa Anti-Ban longa, retoma sozinho em ${timeText}…`,
+            );
+          },
+          shouldAbort,
+        );
       }
     }
 
-    // 3. Processar em micro-lotes variáveis com Jitter Humano e Pausas de Respiração
+    // 3. Processar toda a lista continuamente com pausas longas automáticas (sem pedir clique!)
     let cursor = 0;
     let queriedInThisRun = 0;
-    let nextCooldownThreshold = profile.cooldownEvery + randomInt(-8, 10);
+    let nextShortPauseAt = profile.shortPauseEvery + randomInt(-5, 6);
+    let nextLongPauseAt = profile.longPauseEvery + randomInt(-15, 15);
 
     while (cursor < phonesToQuery.length) {
       if (shouldAbort?.()) {
         break;
       }
 
-      // Tamanho variável de micro-lote (nunca fixo)
       const batchSize = phonesToQuery.length === 1
         ? 1
         : randomInt(profile.minBatch, profile.maxBatch);
@@ -577,7 +628,9 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
       cursor += slice.length;
 
       const formattedSlice = slice.map((phone) => `+${digitsOnly(phone)}`);
-      const response = await queryMicroBatchWithRetry(formattedSlice);
+      const response = await queryMicroBatchWithRetry(formattedSlice, (waitMsg) => {
+        emitProgress(waitMsg);
+      });
 
       const verifiedInSlice = new Set();
       for (const item of response) {
@@ -592,6 +645,7 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
       }
 
       const now = Date.now();
+      const sliceResults = [];
       for (const phone of slice) {
         const cleanDigits = digitsOnly(phone);
         const variants = buildPhoneMatchVariants(cleanDigits);
@@ -606,41 +660,63 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
         resultByDigits.set(cleanDigits, status);
         setCachedStatus(cleanDigits, status);
         recentQueryTimestamps.push(now);
+        sliceResults.push({ phone, status });
       }
 
       completedCount += slice.length;
       queriedInThisRun += slice.length;
 
-      onProgress?.({
-        completed: completedCount,
-        total: phones.length,
-        cachedHits,
-        preFiltered,
-        phaseMessage: `Modo ${profile.label}: ${completedCount} de ${phones.length} verificados com cadência segura…`,
-      });
+      emitProgress(
+        `A verificar automaticamente (${profile.label}) · ${completedCount.toLocaleString("pt-PT")} de ${phones.length.toLocaleString("pt-PT")} números concluídos…`,
+        sliceResults,
+      );
 
-      // Se ainda faltam números neste lote, aplicar pausa humana ou arrefecimento periódico
+      // Se ainda faltam números na lista, aplica a pausa adequada e continua sozinho automaticamente!
       if (cursor < phonesToQuery.length) {
-        if (queriedInThisRun >= nextCooldownThreshold) {
-          const cooldownMs = randomInt(profile.cooldownMinMs, profile.cooldownMaxMs);
-          const cooldownSec = Math.round(cooldownMs / 1000);
-          nextCooldownThreshold = queriedInThisRun + profile.cooldownEvery + randomInt(-8, 10);
+        if (queriedInThisRun >= nextLongPauseAt) {
+          // Pausa Longa Automática (2 a 4,5 minutos dependendo do perfil)
+          const longPauseMs = randomInt(profile.longPauseMinMs, profile.longPauseMaxMs);
+          nextLongPauseAt = queriedInThisRun + profile.longPauseEvery + randomInt(-15, 15);
+          nextShortPauseAt = queriedInThisRun + profile.shortPauseEvery + randomInt(-5, 6);
 
-          onProgress?.({
-            completed: completedCount,
-            total: phones.length,
-            cachedHits,
-            preFiltered,
-            phaseMessage: `Pausa Anti-Ban de ${cooldownSec}s após ${queriedInThisRun} consultas para proteger o seu WhatsApp (${completedCount}/${phones.length})…`,
-          });
-          await wait(cooldownMs);
+          await waitWithCountdown(
+            longPauseMs,
+            (timeText) => {
+              emitProgress(
+                `Pausa longa Anti-Ban (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")} verificados) · Continua automaticamente em ${timeText}…`,
+              );
+            },
+            shouldAbort,
+          );
+        } else if (queriedInThisRun >= nextShortPauseAt) {
+          // Pausa Média de Respiração Automática (30s a 90s dependendo do perfil)
+          const shortPauseMs = randomInt(profile.shortPauseMinMs, profile.shortPauseMaxMs);
+          nextShortPauseAt = queriedInThisRun + profile.shortPauseEvery + randomInt(-5, 6);
+
+          await waitWithCountdown(
+            shortPauseMs,
+            (timeText) => {
+              emitProgress(
+                `Pausa de descanso Anti-Ban (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")} verificados) · Continua sozinho em ${timeText}…`,
+              );
+            },
+            shouldAbort,
+          );
         } else {
-          // Se a conta já tem mais de 500 consultas na última hora, aumenta o atraso automaticamente em 40%
-          const fatigueMultiplier = recentQueryTimestamps.length > 500 ? 1.4 : 1.0;
+          // Pausa curta entre micro-lotes (3,5s a 9,5s)
+          const fatigueMultiplier = recentQueryTimestamps.length > 400 ? 1.45 : 1.0;
           const jitterMs = Math.round(
             randomInt(profile.minDelayMs, profile.maxDelayMs) * fatigueMultiplier,
           );
-          await wait(jitterMs);
+          await waitWithCountdown(
+            jitterMs,
+            (timeText) => {
+              emitProgress(
+                `Cadência segura Anti-Ban (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")}) · próximo micro-lote em ${timeText}…`,
+              );
+            },
+            shouldAbort,
+          );
         }
       }
     }

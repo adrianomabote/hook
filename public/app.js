@@ -474,9 +474,10 @@ function updateBatchButton() {
 
 function updateSessionControls() {
   const hasSessionResults = state.session.started && state.results.length > 0;
+  const validCount = state.results.filter((record) => record.status === "valid").length;
   elements.sessionControls.hidden = !hasSessionResults;
   elements.concludeSessionButton.hidden = state.session.concluded;
-  elements.concludeSessionButton.disabled = state.checking || !hasSessionResults;
+  elements.concludeSessionButton.disabled = state.checking || validCount === 0;
   elements.newSessionButton.hidden = !state.session.concluded;
   elements.newSessionButton.disabled = state.checking;
 
@@ -485,10 +486,10 @@ function updateSessionControls() {
     return;
   }
 
-  const lineCount = state.results.length.toLocaleString("pt-PT");
+  const validText = validCount.toLocaleString("pt-PT");
   elements.sessionStatus.textContent = state.session.concluded
-    ? `Sessão concluída: ${lineCount} linhas guardadas nesta vista.`
-    : `Sessão aberta: ${lineCount} linhas acumuladas. Pode adicionar mais lotes antes de concluir.`;
+    ? `Sessão concluída: ${validText} números com WhatsApp confirmados.`
+    : `Sessão aberta: ${validText} números com WhatsApp confirmados até agora. Pode adicionar mais lotes antes de concluir.`;
 }
 
 function showBatchAlert(message, isError = false) {
@@ -1737,16 +1738,30 @@ elements.exportValidButton.addEventListener("click", downloadWhatsAppFile);
 elements.copyValidButton.addEventListener("click", copyWhatsAppContacts);
 elements.exportInvalidButton.addEventListener("click", () => downloadCsv("invalid"));
 elements.exportAllButton.addEventListener("click", () => downloadCsv("all"));
-elements.concludeSessionButton.addEventListener("click", () => {
+elements.concludeSessionButton.addEventListener("click", async () => {
   if (!state.session.started || state.session.concluded || state.checking) return;
   try {
-    if (!downloadCsv("all", { includeUnknown: true })) return;
+    const file = await prepareWhatsAppFile();
+    if (!file) {
+      showBatchAlert("Não existem números confirmados com WhatsApp nesta sessão para descarregar.", true);
+      return;
+    }
+    const contacts = verifiedContacts();
+    triggerBlobDownload(file.fileName, file.blob);
+
     state.session.concluded = true;
     updateBatchButton();
     renderBatchResults();
-    showBatchAlert("Sessão concluída. O ficheiro final com os resultados acumulados foi descarregado.");
+
+    try {
+      await saveExportHistory(file, contacts.length, sessionSourceName());
+      await renderExportHistory(`${file.fileName} foi guardado no histórico deste navegador.`);
+      showBatchAlert(`Sessão concluída. O ficheiro apenas com os ${contacts.length.toLocaleString("pt-PT")} números que têm WhatsApp foi descarregado.`);
+    } catch {
+      showBatchAlert(`Sessão concluída. O ficheiro apenas com os ${contacts.length.toLocaleString("pt-PT")} números que têm WhatsApp foi descarregado.`);
+    }
   } catch (error) {
-    showBatchAlert(`Não foi possível descarregar os resultados finais: ${error.message}`, true);
+    showBatchAlert(`Não foi possível descarregar os contactos com WhatsApp: ${error.message}`, true);
   }
 });
 elements.newSessionButton.addEventListener("click", () => {

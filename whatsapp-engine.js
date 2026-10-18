@@ -79,9 +79,26 @@ const PROTECTION_PROFILES = {
     longPauseMinMs: 40000,    // Descanso de 40s a 60s a cada ~360 números
     longPauseMaxMs: 60000,
   },
+  batch500_600: {
+    id: "batch500_600",
+    label: "Bloco 500–600 números (Pausa de 4–5 min)",
+    minBatch: 45,
+    maxBatch: 55,
+    minDelayMs: 250,
+    maxDelayMs: 500,
+    exactPauseBoundary: true,
+    shortPauseEveryMin: 500,
+    shortPauseEveryMax: 600,
+    shortPauseEvery: 550,
+    shortPauseMinMs: 240000,  // Pausa única de 4 a 5 minutos a cada 500–600 números
+    shortPauseMaxMs: 300000,
+    longPauseEvery: 9999999,  // Sem outras pausas intermediárias ("só isso")
+    longPauseMinMs: 240000,
+    longPauseMaxMs: 300000,
+  },
 };
 
-let currentProtectionMode = "batch10_13";
+let currentProtectionMode = "batch500_600";
 let baileysModulePromise = null;
 let sock = null;
 let connectionStatus = "disconnected"; // disconnected | connecting | qr_ready | pairing_code_ready | connected
@@ -621,11 +638,33 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
     }
 
     // 2. Se o utilizador acabou de verificar outro ficheiro recentemente, faz uma pausa automática proporcional ao modo
-    const isExact100 = Boolean(profile.exactPauseBoundary);
+    const isExactBoundary = Boolean(profile.exactPauseBoundary);
+    const getNextShortPauseStep = () => (
+      profile.shortPauseEveryMin && profile.shortPauseEveryMax
+        ? randomInt(profile.shortPauseEveryMin, profile.shortPauseEveryMax)
+        : isExactBoundary
+          ? profile.shortPauseEvery
+          : profile.shortPauseEvery + randomInt(-5, 6)
+    );
+
     if (phonesToQuery.length > 0) {
       const stats = getRecentQueryStats();
-      if (stats.last15Min >= 180 && phonesToQuery.length > 5) {
-        const preCooldownMs = isExact100
+      if (profile.id === "batch500_600") {
+        const last5Min = recentQueryTimestamps.filter((t) => Date.now() - t < 5 * 60 * 1000).length;
+        if (last5Min >= 500 && phonesToQuery.length > 5) {
+          const preCooldownMs = randomInt(profile.shortPauseMinMs, profile.shortPauseMaxMs);
+          await waitWithCountdown(
+            preCooldownMs,
+            (timeText) => {
+              emitProgress(
+                `Pausa Anti-Ban de 4–5 min (${last5Min} números recentes) · Retoma sozinho em ${timeText}…`,
+              );
+            },
+            shouldAbort,
+          );
+        }
+      } else if (stats.last15Min >= 180 && phonesToQuery.length > 5) {
+        const preCooldownMs = isExactBoundary
           ? randomInt(6000, 12000) // apenas 6s a 12s no modo agressivo
           : stats.last15Min >= 500
             ? randomInt(120000, 180000)
@@ -645,10 +684,9 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
     // 3. Processar toda a lista continuamente com pausas automáticas (sem pedir clique!)
     let cursor = 0;
     let queriedInThisRun = 0;
-    let nextShortPauseAt = isExact100
-      ? profile.shortPauseEvery
-      : profile.shortPauseEvery + randomInt(-5, 6);
-    let nextLongPauseAt = isExact100
+    let currentPauseBlockSize = getNextShortPauseStep();
+    let nextShortPauseAt = currentPauseBlockSize;
+    let nextLongPauseAt = isExactBoundary
       ? profile.longPauseEvery
       : profile.longPauseEvery + randomInt(-15, 15);
 
@@ -661,7 +699,7 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
       const rawBatchSize = phonesToQuery.length === 1
         ? 1
         : randomInt(profile.minBatch, profile.maxBatch);
-      const batchSize = isExact100
+      const batchSize = isExactBoundary
         ? Math.min(rawBatchSize, remainingUntilPause)
         : rawBatchSize;
       const slice = phonesToQuery.slice(cursor, cursor + batchSize);
@@ -715,12 +753,11 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
       if (cursor < phonesToQuery.length) {
         if (queriedInThisRun >= nextLongPauseAt) {
           const longPauseMs = randomInt(profile.longPauseMinMs, profile.longPauseMaxMs);
-          nextLongPauseAt = isExact100
+          nextLongPauseAt = isExactBoundary
             ? queriedInThisRun + profile.longPauseEvery
             : queriedInThisRun + profile.longPauseEvery + randomInt(-15, 15);
-          nextShortPauseAt = isExact100
-            ? queriedInThisRun + profile.shortPauseEvery
-            : queriedInThisRun + profile.shortPauseEvery + randomInt(-5, 6);
+          currentPauseBlockSize = getNextShortPauseStep();
+          nextShortPauseAt = queriedInThisRun + currentPauseBlockSize;
 
           await waitWithCountdown(
             longPauseMs,
@@ -733,21 +770,21 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
           );
         } else if (queriedInThisRun >= nextShortPauseAt) {
           const shortPauseMs = randomInt(profile.shortPauseMinMs, profile.shortPauseMaxMs);
-          nextShortPauseAt = isExact100
-            ? queriedInThisRun + profile.shortPauseEvery
-            : queriedInThisRun + profile.shortPauseEvery + randomInt(-5, 6);
+          const finishedBlockSize = currentPauseBlockSize;
+          currentPauseBlockSize = getNextShortPauseStep();
+          nextShortPauseAt = queriedInThisRun + currentPauseBlockSize;
 
           await waitWithCountdown(
             shortPauseMs,
             (timeText) => {
               emitProgress(
-                `Pausa Anti-Ban de ${profile.shortPauseEvery} números (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")} verificados) · Continua sozinho em ${timeText}…`,
+                `Pausa Anti-Ban após ${finishedBlockSize} números (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")} verificados) · Continua sozinho em ${timeText}…`,
               );
             },
             shouldAbort,
           );
         } else {
-          const fatigueMultiplier = !isExact100 && recentQueryTimestamps.length > 400 ? 1.45 : 1.0;
+          const fatigueMultiplier = !isExactBoundary && recentQueryTimestamps.length > 400 ? 1.45 : 1.0;
           const jitterMs = Math.round(
             randomInt(profile.minDelayMs, profile.maxDelayMs) * fatigueMultiplier,
           );

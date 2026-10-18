@@ -65,9 +65,23 @@ const PROTECTION_PROFILES = {
     longPauseMinMs: 15000,    // Pausa de 15s a 25s a cada 500 números
     longPauseMaxMs: 25000,
   },
+  batch10_13: {
+    id: "batch10_13",
+    label: "Cadência 10–13 por pausa (Pausa de 10–15s)",
+    minBatch: 10,
+    maxBatch: 13,
+    minDelayMs: 10000,        // Pausa de 10s a 15s a cada 10 a 13 números
+    maxDelayMs: 15000,
+    shortPauseEvery: 120,
+    shortPauseMinMs: 20000,   // Descanso de 20s a 30s a cada ~120 números
+    shortPauseMaxMs: 30000,
+    longPauseEvery: 360,
+    longPauseMinMs: 40000,    // Descanso de 40s a 60s a cada ~360 números
+    longPauseMaxMs: 60000,
+  },
 };
 
-let currentProtectionMode = "batch100";
+let currentProtectionMode = "batch10_13";
 let baileysModulePromise = null;
 let sock = null;
 let connectionStatus = "disconnected"; // disconnected | connecting | qr_ready | pairing_code_ready | connected
@@ -742,7 +756,9 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
               jitterMs,
               (timeText) => {
                 emitProgress(
-                  `Cadência segura Anti-Ban (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")}) · próximo micro-lote em ${timeText}…`,
+                  profile.id === "batch10_13"
+                    ? `Pausa Anti-Ban após ${slice.length} números (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")} verificados) · Continua sozinho em ${timeText}…`
+                    : `Cadência segura Anti-Ban (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")}) · próximo micro-lote em ${timeText}…`,
                 );
               },
               shouldAbort,

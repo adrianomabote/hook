@@ -52,18 +52,18 @@ const PROTECTION_PROFILES = {
   },
   batch100: {
     id: "batch100",
-    label: "Agressivo Controlado (100 números por pausa)",
-    minBatch: 15,
-    maxBatch: 25,
-    minDelayMs: 900,
-    maxDelayMs: 1800,
+    label: "Agressivo Controlado (100 números · pausa curta)",
+    minBatch: 25,
+    maxBatch: 35,
+    minDelayMs: 350,
+    maxDelayMs: 750,
     exactPauseBoundary: true,
     shortPauseEvery: 100,
-    shortPauseMinMs: 45000,   // Pausa de 45s a 75s a cada 100 números exatos
-    shortPauseMaxMs: 75000,
-    longPauseEvery: 400,
-    longPauseMinMs: 95000,    // Pausa longa de 1m35s a 2m20s a cada 400 números
-    longPauseMaxMs: 140000,
+    shortPauseMinMs: 6000,    // Pausa curta de apenas 6s a 12s a cada 100 números
+    shortPauseMaxMs: 12000,
+    longPauseEvery: 500,
+    longPauseMinMs: 15000,    // Pausa de 15s a 25s a cada 500 números
+    longPauseMaxMs: 25000,
   },
 };
 
@@ -606,18 +606,21 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
       );
     }
 
-    // 2. Se o utilizador acabou de verificar outro ficheiro recentemente, faz uma pausa longa automática antes de começar
+    // 2. Se o utilizador acabou de verificar outro ficheiro recentemente, faz uma pausa automática proporcional ao modo
+    const isExact100 = Boolean(profile.exactPauseBoundary);
     if (phonesToQuery.length > 0) {
       const stats = getRecentQueryStats();
       if (stats.last15Min >= 180 && phonesToQuery.length > 5) {
-        const preCooldownMs = stats.last15Min >= 500
-          ? randomInt(120000, 180000) // 2 a 3 minutos
-          : randomInt(60000, 100000); // 1m a 1m40s
+        const preCooldownMs = isExact100
+          ? randomInt(6000, 12000) // apenas 6s a 12s no modo agressivo
+          : stats.last15Min >= 500
+            ? randomInt(120000, 180000)
+            : randomInt(60000, 100000);
         await waitWithCountdown(
           preCooldownMs,
           (timeText) => {
             emitProgress(
-              `Proteção entre ficheiros (${stats.last15Min} números recentes) · Pausa Anti-Ban longa, retoma sozinho em ${timeText}…`,
+              `Proteção entre ficheiros (${stats.last15Min} números recentes) · Retoma sozinho em ${timeText}…`,
             );
           },
           shouldAbort,
@@ -625,10 +628,9 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
       }
     }
 
-    // 3. Processar toda a lista continuamente com pausas longas automáticas (sem pedir clique!)
+    // 3. Processar toda a lista continuamente com pausas automáticas (sem pedir clique!)
     let cursor = 0;
     let queriedInThisRun = 0;
-    const isExact100 = Boolean(profile.exactPauseBoundary);
     let nextShortPauseAt = isExact100
       ? profile.shortPauseEvery
       : profile.shortPauseEvery + randomInt(-5, 6);
@@ -731,20 +733,23 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
             shouldAbort,
           );
         } else {
-          // Pausa curta entre micro-lotes (3,5s a 9,5s)
-          const fatigueMultiplier = recentQueryTimestamps.length > 400 ? 1.45 : 1.0;
+          const fatigueMultiplier = !isExact100 && recentQueryTimestamps.length > 400 ? 1.45 : 1.0;
           const jitterMs = Math.round(
             randomInt(profile.minDelayMs, profile.maxDelayMs) * fatigueMultiplier,
           );
-          await waitWithCountdown(
-            jitterMs,
-            (timeText) => {
-              emitProgress(
-                `Cadência segura Anti-Ban (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")}) · próximo micro-lote em ${timeText}…`,
-              );
-            },
-            shouldAbort,
-          );
+          if (jitterMs >= 1200) {
+            await waitWithCountdown(
+              jitterMs,
+              (timeText) => {
+                emitProgress(
+                  `Cadência segura Anti-Ban (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")}) · próximo micro-lote em ${timeText}…`,
+                );
+              },
+              shouldAbort,
+            );
+          } else {
+            await wait(jitterMs);
+          }
         }
       }
     }

@@ -5,3 +5,4 @@ node_modules/
 .DS_Store
 .whatsapp-session/
 .whatsapp-cache.json
+.whatsapp-config.json

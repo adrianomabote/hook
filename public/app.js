@@ -82,9 +82,27 @@ const elements = {
   engineCodeWrap: document.querySelector("#engineCodeWrap"),
   enginePairingCode: document.querySelector("#enginePairingCode"),
   engineProtectionSelect: document.querySelector("#engineProtectionSelect"),
+  toggleManualConfigButton: document.querySelector("#toggleManualConfigButton"),
+  manualConfigPanel: document.querySelector("#manualConfigPanel"),
+  manualBlockSize: document.querySelector("#manualBlockSize"),
+  manualPauseSeconds: document.querySelector("#manualPauseSeconds"),
+  manualMicroBatch: document.querySelector("#manualMicroBatch"),
+  manualDelaySeconds: document.querySelector("#manualDelaySeconds"),
+  applyManualConfigButton: document.querySelector("#applyManualConfigButton"),
+  manualConfigSummary: document.querySelector("#manualConfigSummary"),
   engineStatsText: document.querySelector("#engineStatsText"),
   engineClearCacheButton: document.querySelector("#engineClearCacheButton"),
   engineAlert: document.querySelector("#engineAlert"),
+  checkRunningStatusButton: document.querySelector("#checkRunningStatusButton"),
+  clearRunningQueueButton: document.querySelector("#clearRunningQueueButton"),
+  activeJobBanner: document.querySelector("#activeJobBanner"),
+  activeJobBadge: document.querySelector("#activeJobBadge"),
+  activeJobTitle: document.querySelector("#activeJobTitle"),
+  activeJobDetails: document.querySelector("#activeJobDetails"),
+  attachActiveJobButton: document.querySelector("#attachActiveJobButton"),
+  clearActiveJobButton: document.querySelector("#clearActiveJobButton"),
+  forceRestartJobButton: document.querySelector("#forceRestartJobButton"),
+  stopActiveCheckButton: document.querySelector("#stopActiveCheckButton"),
 };
 
 const EXPORT_HISTORY_DB = "contactocheck-export-history";
@@ -94,6 +112,9 @@ let exportHistoryDbPromise = null;
 const state = {
   tokenConfigured: false,
   checking: false,
+  abortPolling: false,
+  activeJobId: null,
+  serverActiveJob: null,
   continueAction: null,
   imported: null,
   results: [],
@@ -523,6 +544,14 @@ function showEngineAlert(message, isError = false) {
   elements.engineAlert.hidden = !message;
 }
 
+function formatCustomSummaryText(cfg) {
+  if (!cfg) return "Modo manual pronto para aplicar.";
+  const pauseText = Number(cfg.pauseSeconds) <= 0
+    ? "sem pausa entre blocos"
+    : `pausa de ${cfg.pauseSeconds}s a cada ${cfg.blockSize} números`;
+  return `Configuração manual: ${pauseText} · lote de ${cfg.microBatchSize} números · intervalo de ${cfg.delaySeconds}s.`;
+}
+
 function renderEngineState(engine) {
   if (!elements.engineBadge || !engine) return;
 
@@ -534,8 +563,34 @@ function renderEngineState(engine) {
   elements.engineBadge.classList.toggle("is-pending", !isConnected && isPending);
   elements.engineBadge.classList.toggle("is-disconnected", !isConnected && !isPending);
 
+  if (engine.customConfig) {
+    const cfg = engine.customConfig;
+    if (elements.manualBlockSize && document.activeElement !== elements.manualBlockSize) {
+      elements.manualBlockSize.value = String(cfg.blockSize ?? 200);
+    }
+    if (elements.manualPauseSeconds && document.activeElement !== elements.manualPauseSeconds) {
+      elements.manualPauseSeconds.value = String(cfg.pauseSeconds ?? 30);
+    }
+    if (elements.manualMicroBatch && document.activeElement !== elements.manualMicroBatch) {
+      elements.manualMicroBatch.value = String(cfg.microBatchSize ?? 25);
+    }
+    if (elements.manualDelaySeconds && document.activeElement !== elements.manualDelaySeconds) {
+      elements.manualDelaySeconds.value = String(cfg.delaySeconds ?? 0.5);
+    }
+    if (elements.manualConfigSummary) {
+      elements.manualConfigSummary.textContent = formatCustomSummaryText(cfg);
+    }
+    const customOption = elements.engineProtectionSelect?.querySelector('option[value="custom"]');
+    if (customOption && engine.protectionMode === "custom" && engine.protectionLabel) {
+      customOption.textContent = `Personalizado · ${engine.protectionLabel}`;
+    }
+  }
+
   if (elements.engineProtectionSelect && engine.protectionMode) {
     elements.engineProtectionSelect.value = engine.protectionMode;
+    if (engine.protectionMode === "custom" && elements.manualConfigPanel) {
+      elements.manualConfigPanel.hidden = false;
+    }
   }
 
   if (elements.engineStatsText && engine.stats) {
@@ -604,12 +659,44 @@ function renderEngineState(engine) {
   }
 }
 
+function renderActiveJobBanner(activeJob) {
+  state.serverActiveJob = activeJob || null;
+  if (!elements.activeJobBanner) return;
+
+  if (!activeJob) {
+    elements.activeJobBanner.hidden = true;
+    return;
+  }
+
+  const total = Number(activeJob.total) || 0;
+  const completed = Number(activeJob.completed) || 0;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const validCount = Number(activeJob.validCount) || 0;
+  const invalidCount = Number(activeJob.invalidCount) || 0;
+  const statusLabelText = activeJob.status === "paused"
+    ? "Verificação em pausa"
+    : "Verificação em andamento";
+
+  elements.activeJobBadge.textContent = `${statusLabelText} (${pct}%)`;
+  elements.activeJobTitle.textContent = `${completed.toLocaleString("pt-PT")} de ${total.toLocaleString("pt-PT")} números processados`;
+  elements.activeJobDetails.textContent = `${validCount.toLocaleString("pt-PT")} com WhatsApp · ${invalidCount.toLocaleString("pt-PT")} sem WhatsApp · ${activeJob.phaseMessage || "Consulta ativa em segundo plano."}`;
+  if (elements.forceRestartJobButton) {
+    elements.forceRestartJobButton.hidden = !Boolean(state.imported && activeRows().length);
+  }
+  elements.activeJobBanner.hidden = false;
+}
+
 async function refreshHealth() {
   try {
     const response = await fetch("/api/health", { cache: "no-store" });
     const health = await response.json();
     if (response.ok && health.engine) {
       renderEngineState(health.engine);
+      if (health.activeJob) {
+        renderActiveJobBanner(health.activeJob);
+      } else if (!state.checking) {
+        renderActiveJobBanner(null);
+      }
     } else {
       setConnectionState(response.ok && health.tokenConfigured);
     }
@@ -668,8 +755,60 @@ elements.enginePairForm?.addEventListener("submit", async (event) => {
   }
 });
 
+async function saveAndApplyManualConfig() {
+  const blockSize = Math.max(1, Number(elements.manualBlockSize?.value || 200));
+  const pauseSeconds = Math.max(0, Number(elements.manualPauseSeconds?.value || 30));
+  const microBatchSize = Math.max(1, Number(elements.manualMicroBatch?.value || 25));
+  const delaySeconds = Math.max(0, Number(elements.manualDelaySeconds?.value || 0.5));
+
+  if (elements.applyManualConfigButton) {
+    elements.applyManualConfigButton.disabled = true;
+  }
+  try {
+    const response = await fetch("/api/whatsapp/custom-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        blockSize,
+        pauseSeconds,
+        microBatchSize,
+        delaySeconds,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Não foi possível guardar o ajuste manual.");
+    renderEngineState(data);
+    showEngineAlert(`Ajuste manual aplicado: ${data.protectionLabel}.`, false);
+  } catch (error) {
+    showEngineAlert(error.message, true);
+  } finally {
+    if (elements.applyManualConfigButton) {
+      elements.applyManualConfigButton.disabled = false;
+    }
+  }
+}
+
+elements.toggleManualConfigButton?.addEventListener("click", () => {
+  if (!elements.manualConfigPanel) return;
+  elements.manualConfigPanel.hidden = !elements.manualConfigPanel.hidden;
+  if (!elements.manualConfigPanel.hidden) {
+    elements.manualBlockSize?.focus();
+  }
+});
+
+elements.applyManualConfigButton?.addEventListener("click", () => {
+  void saveAndApplyManualConfig();
+});
+
 elements.engineProtectionSelect?.addEventListener("change", async () => {
   const mode = elements.engineProtectionSelect.value;
+  if (mode === "custom") {
+    if (elements.manualConfigPanel) {
+      elements.manualConfigPanel.hidden = false;
+    }
+    await saveAndApplyManualConfig();
+    return;
+  }
   try {
     const response = await fetch("/api/whatsapp/protection", {
       method: "POST",
@@ -726,31 +865,23 @@ function showSingleResult(status, title, detail) {
   elements.singleResult.hidden = false;
 }
 
-async function requestCheck(phones, onProgress, onPaused) {
-  const response = await fetch("/api/check", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phones }),
-  });
-  let data;
-  try {
-    data = await response.json();
-  } catch {
-    throw new Error("O servidor devolveu uma resposta inválida.");
-  }
-  if (!response.ok) throw new Error(data.error || "Não foi possível consultar os números.");
-  if (Array.isArray(data.results)) return data.results;
-  if (!data.jobId) throw new Error("A resposta não contém resultados.");
-
+async function pollJobUntilCompletion(jobId, totalHint, onProgress, onPaused) {
+  state.activeJobId = jobId;
+  state.abortPolling = false;
   let completed = 0;
   let pollingErrors = 0;
-  onProgress?.(completed, data.total || phones.length, data.phaseMessage || null);
 
-  while (true) {
+  while (!state.abortPolling) {
     await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    if (state.abortPolling) {
+      const abortErr = new Error("A verificação foi parada e limpa manualmente.");
+      abortErr.cancelledByUser = true;
+      throw abortErr;
+    }
+
     let statusResponse;
     try {
-      statusResponse = await fetch(`/api/check/${encodeURIComponent(data.jobId)}`, {
+      statusResponse = await fetch(`/api/check/${encodeURIComponent(jobId)}`, {
         cache: "no-store",
       });
     } catch {
@@ -768,16 +899,46 @@ async function requestCheck(phones, onProgress, onPaused) {
       throw new Error("O servidor devolveu o estado da verificação num formato inválido.");
     }
     if (!statusResponse.ok) {
+      if (statusResponse.status === 404 && state.abortPolling) {
+        const abortErr = new Error("A verificação foi parada e limpa manualmente.");
+        abortErr.cancelledByUser = true;
+        throw abortErr;
+      }
       throw new Error(statusData.error || "Não foi possível obter o estado da verificação.");
     }
 
     pollingErrors = 0;
     completed = Number(statusData.completed) || 0;
+    const total = Number(statusData.total) || totalHint || 1;
+    const partialResults = Array.isArray(statusData.partialResults) ? statusData.partialResults : null;
+
+    if (["queued", "running", "paused"].includes(statusData.status)) {
+      let validCount = 0;
+      let invalidCount = 0;
+      if (partialResults) {
+        for (const item of partialResults) {
+          if (item?.status === "valid") validCount += 1;
+          else if (item?.status === "invalid") invalidCount += 1;
+        }
+      }
+      renderActiveJobBanner({
+        jobId,
+        status: statusData.status,
+        total,
+        completed,
+        validCount,
+        invalidCount,
+        phaseMessage: statusData.phaseMessage || null,
+      });
+    } else {
+      renderActiveJobBanner(null);
+    }
+
     onProgress?.(
       completed,
-      Number(statusData.total) || phones.length,
+      total,
       statusData.phaseMessage || null,
-      Array.isArray(statusData.partialResults) ? statusData.partialResults : null,
+      partialResults,
     );
 
     if (statusData.status === "completed") {
@@ -786,22 +947,60 @@ async function requestCheck(phones, onProgress, onPaused) {
       }
       return statusData.results;
     }
+    if (statusData.status === "cancelled") {
+      const abortErr = new Error("A verificação em andamento foi limpa.");
+      abortErr.cancelledByUser = true;
+      abortErr.results = Array.isArray(statusData.results) ? statusData.results : (partialResults || []);
+      throw abortErr;
+    }
     if (statusData.status === "failed") {
       const error = new Error(statusData.error || "A verificação foi interrompida pelo serviço.");
-      error.results = Array.isArray(statusData.results) ? statusData.results : [];
+      error.results = Array.isArray(statusData.results) ? statusData.results : (partialResults || []);
       throw error;
     }
     if (statusData.status === "paused") {
       if (!onPaused) {
         throw new Error("A verificação aguarda confirmação antes de continuar.");
       }
-      await onPaused(data.jobId, completed, Number(statusData.total) || phones.length);
+      await onPaused(jobId, completed, total);
       continue;
     }
     if (!["queued", "running"].includes(statusData.status)) {
       throw new Error("O estado da verificação não é reconhecido.");
     }
   }
+
+  const abortErr = new Error("A verificação foi parada pelo utilizador.");
+  abortErr.cancelledByUser = true;
+  throw abortErr;
+}
+
+async function requestCheck(phones, onProgress, onPaused, options = {}) {
+  const response = await fetch("/api/check", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      phones,
+      forceReplace: Boolean(options.forceReplace),
+    }),
+  });
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("O servidor devolveu uma resposta inválida.");
+  }
+  if (!response.ok) {
+    const err = new Error(data.error || "Não foi possível consultar os números.");
+    err.code = data.code || null;
+    err.activeJob = data.activeJob || null;
+    throw err;
+  }
+  if (Array.isArray(data.results)) return data.results;
+  if (!data.jobId) throw new Error("A resposta não contém resultados.");
+
+  onProgress?.(0, data.total || phones.length, data.phaseMessage || null);
+  return pollJobUntilCompletion(data.jobId, data.total || phones.length, onProgress, onPaused);
 }
 
 function statusTitle(status) {
@@ -983,9 +1182,212 @@ elements.removeFileButton.addEventListener("click", () => {
   updateBatchButton();
 });
 
-elements.batchCheckButton.addEventListener("click", runBatchCheck);
+elements.batchCheckButton.addEventListener("click", () => {
+  void runBatchCheck({ forceReplace: false });
+});
 elements.continueDivisionButton.addEventListener("click", () => {
   if (state.continueAction) void state.continueAction();
+});
+
+function mergePartialResultsIntoSession(partialResults, sourceLabel = "Verificação em curso") {
+  if (!Array.isArray(partialResults) || partialResults.length === 0) return;
+  state.session.started = true;
+  const existingByPhone = new Map();
+  state.results.forEach((rec, idx) => {
+    if (rec.phone) existingByPhone.set(rec.phone, idx);
+  });
+
+  for (const item of partialResults) {
+    if (!item || !item.phone || !item.status) continue;
+    state.session.checkedPhones.add(item.phone);
+    if (existingByPhone.has(item.phone)) {
+      const idx = existingByPhone.get(item.phone);
+      state.results[idx].status = item.status;
+    } else {
+      existingByPhone.set(item.phone, state.results.length);
+      state.results.push({
+        cells: [item.phone],
+        index: state.results.length,
+        raw: item.phone,
+        sourceHeaders: ["Telefone"],
+        sourceName: sourceLabel,
+        sourceSheetName: "Contactos",
+        phone: item.phone,
+        reason: null,
+        status: item.status,
+      });
+    }
+  }
+}
+
+async function inspectRunningVerification() {
+  setMode("batch");
+  try {
+    const response = await fetch("/api/check/active?includeResults=1", { cache: "no-store" });
+    const data = await response.json();
+    if (data.engine) {
+      renderEngineState(data.engine);
+    }
+    if (data.activeJob) {
+      renderActiveJobBanner(data.activeJob);
+      if (Array.isArray(data.activeJob.partialResults) && data.activeJob.partialResults.length > 0) {
+        mergePartialResultsIntoSession(data.activeJob.partialResults);
+        renderBatchResults();
+      }
+      const j = data.activeJob;
+      showBatchAlert(
+        `Em andamento: ${Number(j.completed).toLocaleString("pt-PT")} de ${Number(j.total).toLocaleString("pt-PT")} números processados (${Number(j.validCount || 0).toLocaleString("pt-PT")} confirmados com WhatsApp). Pode clicar em “Acompanhar em andamento” ou “Parar e limpar verificação”.`,
+        false,
+      );
+    } else {
+      renderActiveJobBanner(null);
+      if (state.checking) {
+        state.abortPolling = true;
+        state.checking = false;
+        updateBatchButton();
+      }
+      showBatchAlert(
+        "Não existe nenhuma verificação em andamento no servidor neste momento. O sistema está livre para iniciar uma nova consulta.",
+        false,
+      );
+    }
+  } catch (error) {
+    showBatchAlert(`Não foi possível consultar o estado atual: ${error.message}`, true);
+  }
+}
+
+async function clearRunningVerification() {
+  state.abortPolling = true;
+  if (elements.clearRunningQueueButton) elements.clearRunningQueueButton.disabled = true;
+  if (elements.clearActiveJobButton) elements.clearActiveJobButton.disabled = true;
+  if (elements.stopActiveCheckButton) elements.stopActiveCheckButton.disabled = true;
+
+  try {
+    const response = await fetch("/api/check/clear", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId: state.activeJobId || state.serverActiveJob?.jobId || null }),
+    });
+    const data = await response.json();
+    if (data.engine) {
+      renderEngineState(data.engine);
+    }
+    if (Array.isArray(data.partialResults) && data.partialResults.length > 0) {
+      mergePartialResultsIntoSession(data.partialResults);
+    }
+    state.results.forEach((rec) => {
+      if (rec.status === "pending") {
+        rec.status = "unknown";
+      }
+    });
+    state.checking = false;
+    state.activeJobId = null;
+    state.continueAction = null;
+    elements.progressContinueWrap.hidden = true;
+    renderActiveJobBanner(null);
+    renderBatchResults();
+    updateBatchButton();
+
+    const validCount = state.results.filter((r) => r.status === "valid").length;
+    showBatchAlert(
+      validCount > 0
+        ? `Verificação em andamento limpa e destravada! Os ${validCount.toLocaleString("pt-PT")} contactos já confirmados foram mantidos na tabela e já pode iniciar uma nova verificação.`
+        : "Verificação em andamento parada e limpa com sucesso! Já pode iniciar uma nova consulta.",
+      false,
+    );
+  } catch (error) {
+    showBatchAlert(`Erro ao limpar verificação: ${error.message}`, true);
+  } finally {
+    if (elements.clearRunningQueueButton) elements.clearRunningQueueButton.disabled = false;
+    if (elements.clearActiveJobButton) elements.clearActiveJobButton.disabled = false;
+    if (elements.stopActiveCheckButton) elements.stopActiveCheckButton.disabled = false;
+  }
+}
+
+async function attachToRunningVerification() {
+  const jobId = state.serverActiveJob?.jobId || state.activeJobId;
+  if (!jobId) {
+    await inspectRunningVerification();
+    return;
+  }
+  if (state.checking) return;
+
+  setMode("batch");
+  state.checking = true;
+  state.abortPolling = false;
+  state.session.started = true;
+  elements.batchAlert.hidden = true;
+  updateBatchButton();
+
+  const totalHint = Number(state.serverActiveJob?.total) || 1;
+  renderProgress(
+    Number(state.serverActiveJob?.completed) || 0,
+    totalHint,
+    state.serverActiveJob?.phaseMessage || "A acompanhar verificação em andamento…",
+  );
+
+  try {
+    const finalResults = await pollJobUntilCompletion(
+      jobId,
+      totalHint,
+      (done, total, phaseMessage, partialResults) => {
+        renderProgress(done, total, phaseMessage || divisionProgressLabel(done, total));
+        if (Array.isArray(partialResults) && partialResults.length > 0) {
+          mergePartialResultsIntoSession(partialResults);
+          renderBatchResults();
+        }
+      },
+      (pausedJobId, done, total) => waitForManualContinue(pausedJobId, done, total),
+    );
+    if (Array.isArray(finalResults) && finalResults.length > 0) {
+      mergePartialResultsIntoSession(finalResults);
+    }
+    renderActiveJobBanner(null);
+    renderBatchResults();
+    const validCount = state.results.filter((r) => r.status === "valid").length;
+    showBatchAlert(
+      `Verificação concluída: ${validCount.toLocaleString("pt-PT")} contactos confirmados com WhatsApp.`,
+      false,
+    );
+  } catch (error) {
+    if (Array.isArray(error.results) && error.results.length > 0) {
+      mergePartialResultsIntoSession(error.results);
+    }
+    renderBatchResults();
+    if (!error.cancelledByUser) {
+      showBatchAlert(`A verificação foi interrompida: ${error.message}`, true);
+    }
+  } finally {
+    state.checking = false;
+    state.continueAction = null;
+    elements.progressContinueWrap.hidden = true;
+    renderBatchResults();
+    updateBatchButton();
+  }
+}
+
+elements.checkRunningStatusButton?.addEventListener("click", () => {
+  void inspectRunningVerification();
+});
+
+elements.clearRunningQueueButton?.addEventListener("click", () => {
+  void clearRunningVerification();
+});
+
+elements.clearActiveJobButton?.addEventListener("click", () => {
+  void clearRunningVerification();
+});
+
+elements.stopActiveCheckButton?.addEventListener("click", () => {
+  void clearRunningVerification();
+});
+
+elements.attachActiveJobButton?.addEventListener("click", () => {
+  void attachToRunningVerification();
+});
+
+elements.forceRestartJobButton?.addEventListener("click", () => {
+  void runBatchCheck({ forceReplace: true });
 });
 
 function renderProgress(done, total, label) {
@@ -1079,8 +1481,9 @@ function replaceSessionBatchResults(start, records, statusForRecord) {
   });
 }
 
-async function runBatchCheck() {
-  if (!state.imported || !state.tokenConfigured || state.checking || state.session.concluded) return;
+async function runBatchCheck(options = {}) {
+  const { forceReplace = false } = options;
+  if (!state.imported || !state.tokenConfigured || (state.checking && !forceReplace) || state.session.concluded) return;
   const records = buildRecords();
   const uniquePhones = [...new Set(records.map((record) => record.phone).filter(Boolean))];
 
@@ -1096,6 +1499,11 @@ async function runBatchCheck() {
     return;
   }
 
+  if (forceReplace) {
+    state.session.checkedPhones.clear();
+    state.results = [];
+  }
+
   const previousStatusByPhone = new Map(
     state.results
       .filter((record) => record.phone)
@@ -1105,6 +1513,7 @@ async function runBatchCheck() {
   const batchStart = state.results.length;
 
   state.checking = true;
+  state.abortPolling = false;
   state.continueAction = null;
   state.session.started = true;
   newPhones.forEach((phone) => state.session.checkedPhones.add(phone));
@@ -1164,6 +1573,7 @@ async function runBatchCheck() {
         }
       },
       (jobId, done, total) => waitForManualContinue(jobId, done, total),
+      { forceReplace },
     );
     results.forEach((result) => resultByPhone.set(result.phone, result.status));
     completed = newPhones.length;
@@ -1173,6 +1583,7 @@ async function runBatchCheck() {
         ? (resultByPhone.get(record.phone) || previousStatusByPhone.get(record.phone) || "unknown")
         : "invalid_format"
     ));
+    renderActiveJobBanner(null);
     renderBatchResults();
     renderProgress(completed, newPhones.length, `${completed.toLocaleString("pt-PT")} de ${newPhones.length.toLocaleString("pt-PT")} números verificados com sucesso`);
     void refreshHealth();
@@ -1182,6 +1593,25 @@ async function runBatchCheck() {
       : `Verificação automática concluída: ${newPhones.length.toLocaleString("pt-PT")} números processados. Não foram encontrados contactos confirmados para descarregar.`);
   } catch (error) {
     void refreshHealth();
+    if (error.cancelledByUser) {
+      return;
+    }
+    if (error.code === "check_already_running") {
+      // Remove os registos pendentes desta tentativa bloqueada para que o utilizador possa acompanhar ou limpar e tentar de novo
+      newPhones.forEach((phone) => state.session.checkedPhones.delete(phone));
+      state.results.splice(batchStart, records.length);
+      if (error.activeJob) {
+        renderActiveJobBanner(error.activeJob);
+      } else {
+        void inspectRunningVerification();
+      }
+      elements.progressWrap.hidden = true;
+      showBatchAlert(
+        "Já existe uma verificação em andamento no servidor. Use os botões acima para “Acompanhar em andamento”, “Parar e limpar verificação” ou “Limpar e iniciar esta lista agora”.",
+        true,
+      );
+      return;
+    }
     (Array.isArray(error.results) ? error.results : []).forEach((result) => {
       resultByPhone.set(result.phone, result.status);
     });

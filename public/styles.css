@@ -1828,12 +1828,20 @@ td:first-child {
 }
 
 .engine-protection-control {
-  flex: 1 1 280px;
+  flex: 1 1 360px;
+}
+
+.protection-select-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .engine-protection-control .select-control {
   width: 100%;
   max-width: 480px;
+  flex: 1 1 260px;
 }
 
 .engine-cache-info {
@@ -1842,3 +1850,150 @@ td:first-child {
   gap: 12px;
   flex-wrap: wrap;
 }
+
+.manual-config-panel {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid #cce5d8;
+  border-radius: 12px;
+  background: #f7fcf9;
+  display: grid;
+  gap: 14px;
+}
+
+.manual-config-head strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #1c3a2d;
+  font-size: 13px;
+}
+
+.manual-config-head span {
+  display: block;
+  color: #607368;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.manual-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.manual-config-field {
+  min-width: 0;
+}
+
+.manual-number-input {
+  appearance: auto !important;
+  background-image: none !important;
+  padding: 0 11px !important;
+  max-width: 100% !important;
+}
+
+.manual-config-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.batch-queue-tools {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.active-job-banner {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid #d7e8de;
+  border-radius: 12px;
+  background: #f3faf6;
+  display: grid;
+  gap: 8px;
+}
+
+.active-job-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.active-job-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--green);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.active-job-header strong {
+  font-size: 12px;
+  color: #1c3a2d;
+}
+
+.active-job-details {
+  margin: 0;
+  color: #4f665a;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.active-job-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.progress-actions-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.progress-stop-btn {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 11px;
+  color: #9b4d41;
+  border-color: #efd9d3;
+  background: #fff8f6;
+}
+
+.progress-stop-btn:not(:disabled):hover {
+  color: #7c352a;
+  border-color: #e3bfb6;
+  background: #fdf0ed;
+}
+
+@media (max-width: 620px) {
+  .manual-config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .active-job-actions,
+  .batch-queue-tools,
+  .protection-select-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .active-job-actions .button,
+  .batch-queue-tools .button,
+  .protection-select-row .button {
+    width: 100%;
+  }
+}
+

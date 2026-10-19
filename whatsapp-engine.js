@@ -5,7 +5,24 @@ const QRCode = require("qrcode");
 
 const SESSION_DIR = path.join(__dirname, ".whatsapp-session");
 const CACHE_FILE = path.join(__dirname, ".whatsapp-cache.json");
+const CONFIG_FILE = path.join(__dirname, ".whatsapp-config.json");
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias de cache para evitar reconsultar números
+
+const customConfig = {
+  blockSize: 200,
+  pauseSeconds: 30,
+  microBatchSize: 25,
+  delaySeconds: 0.5,
+};
+
+function buildCustomProfileLabel(cfg) {
+  const pauseText = cfg.pauseSeconds <= 0
+    ? "sem pausa"
+    : cfg.pauseSeconds >= 60 && cfg.pauseSeconds % 60 === 0
+      ? `pausa de ${cfg.pauseSeconds / 60} min`
+      : `pausa de ${cfg.pauseSeconds}s`;
+  return `Manual (${cfg.blockSize} números · ${pauseText} · lote de ${cfg.microBatchSize})`;
+}
 
 const PROTECTION_PROFILES = {
   ultra: {
@@ -96,7 +113,46 @@ const PROTECTION_PROFILES = {
     longPauseMinMs: 240000,
     longPauseMaxMs: 300000,
   },
+  custom: {
+    id: "custom",
+    label: buildCustomProfileLabel(customConfig),
+    minBatch: customConfig.microBatchSize,
+    maxBatch: customConfig.microBatchSize,
+    minDelayMs: Math.round(customConfig.delaySeconds * 1000),
+    maxDelayMs: Math.round(customConfig.delaySeconds * 1000),
+    exactPauseBoundary: true,
+    shortPauseEveryMin: customConfig.blockSize,
+    shortPauseEveryMax: customConfig.blockSize,
+    shortPauseEvery: customConfig.blockSize,
+    shortPauseMinMs: Math.round(customConfig.pauseSeconds * 1000),
+    shortPauseMaxMs: Math.round(customConfig.pauseSeconds * 1000),
+    longPauseEvery: 9999999,
+    longPauseMinMs: Math.round(customConfig.pauseSeconds * 1000),
+    longPauseMaxMs: Math.round(customConfig.pauseSeconds * 1000),
+  },
 };
+
+function syncCustomProfileObject() {
+  const pauseMs = Math.max(0, Math.round(customConfig.pauseSeconds * 1000));
+  const delayMs = Math.max(0, Math.round(customConfig.delaySeconds * 1000));
+  PROTECTION_PROFILES.custom = {
+    id: "custom",
+    label: buildCustomProfileLabel(customConfig),
+    minBatch: customConfig.microBatchSize,
+    maxBatch: customConfig.microBatchSize,
+    minDelayMs: delayMs,
+    maxDelayMs: delayMs,
+    exactPauseBoundary: true,
+    shortPauseEveryMin: customConfig.blockSize,
+    shortPauseEveryMax: customConfig.blockSize,
+    shortPauseEvery: customConfig.blockSize,
+    shortPauseMinMs: pauseMs,
+    shortPauseMaxMs: pauseMs,
+    longPauseEvery: 9999999,
+    longPauseMinMs: pauseMs,
+    longPauseMaxMs: pauseMs,
+  };
+}
 
 let currentProtectionMode = "batch500_600";
 let baileysModulePromise = null;
@@ -113,8 +169,53 @@ let isInitializing = false;
 
 // Fila exclusiva para nunca disparar consultas paralelas ao WhatsApp
 let activeQueryLock = Promise.resolve();
+let engineAbortGeneration = 0;
+let isCheckingInEngine = false;
+let activeEnginePhase = null;
 const recentQueryTimestamps = [];
 const verifiedCache = new Map();
+
+function loadConfigFromDisk() {
+  try {
+    if (!fs.existsSync(CONFIG_FILE)) return;
+    const raw = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+    if (raw && typeof raw === "object") {
+      if (raw.customConfig && typeof raw.customConfig === "object") {
+        const bSize = Number(raw.customConfig.blockSize);
+        const pSec = Number(raw.customConfig.pauseSeconds);
+        const mBatch = Number(raw.customConfig.microBatchSize);
+        const dSec = Number(raw.customConfig.delaySeconds);
+        if (Number.isFinite(bSize) && bSize >= 1) customConfig.blockSize = Math.min(100000, Math.round(bSize));
+        if (Number.isFinite(pSec) && pSec >= 0) customConfig.pauseSeconds = Math.min(7200, Math.round(pSec));
+        if (Number.isFinite(mBatch) && mBatch >= 1) customConfig.microBatchSize = Math.min(500, Math.round(mBatch));
+        if (Number.isFinite(dSec) && dSec >= 0) customConfig.delaySeconds = Math.min(120, Math.round(dSec * 10) / 10);
+        syncCustomProfileObject();
+      }
+      if (typeof raw.protectionMode === "string" && PROTECTION_PROFILES[raw.protectionMode]) {
+        currentProtectionMode = raw.protectionMode;
+      }
+    }
+  } catch {
+    // Ignore config read errors
+  }
+}
+
+function saveConfigToDisk() {
+  try {
+    fs.writeFileSync(
+      CONFIG_FILE,
+      JSON.stringify({
+        protectionMode: currentProtectionMode,
+        customConfig,
+      }),
+      "utf8",
+    );
+  } catch {
+    // Ignore disk write errors
+  }
+}
+
+loadConfigFromDisk();
 
 function loadCacheFromDisk() {
   try {
@@ -232,6 +333,43 @@ function getRecentQueryStats() {
 function setProtectionMode(mode) {
   if (PROTECTION_PROFILES[mode]) {
     currentProtectionMode = mode;
+    saveConfigToDisk();
+  }
+  return getEngineState();
+}
+
+function setCustomConsultationConfig(input = {}) {
+  const blockSize = Number(input.blockSize);
+  const pauseSeconds = Number(input.pauseSeconds);
+  const microBatchSize = Number(input.microBatchSize);
+  const delaySeconds = Number(input.delaySeconds);
+
+  if (Number.isFinite(blockSize) && blockSize >= 1) {
+    customConfig.blockSize = Math.min(100000, Math.max(1, Math.round(blockSize)));
+  }
+  if (Number.isFinite(pauseSeconds) && pauseSeconds >= 0) {
+    customConfig.pauseSeconds = Math.min(7200, Math.max(0, Math.round(pauseSeconds)));
+  }
+  if (Number.isFinite(microBatchSize) && microBatchSize >= 1) {
+    customConfig.microBatchSize = Math.min(500, Math.max(1, Math.round(microBatchSize)));
+  }
+  if (Number.isFinite(delaySeconds) && delaySeconds >= 0) {
+    customConfig.delaySeconds = Math.min(120, Math.max(0, Math.round(delaySeconds * 10) / 10));
+  }
+
+  syncCustomProfileObject();
+  currentProtectionMode = "custom";
+  saveConfigToDisk();
+  return getEngineState();
+}
+
+function cancelAllRunningChecks(options = {}) {
+  const { resetCooldown = true } = options;
+  engineAbortGeneration += 1;
+  isCheckingInEngine = false;
+  activeEnginePhase = null;
+  if (resetCooldown) {
+    recentQueryTimestamps.length = 0;
   }
   return getEngineState();
 }
@@ -474,6 +612,9 @@ function getEngineState() {
     lastError,
     protectionMode: profile.id,
     protectionLabel: profile.label,
+    customConfig: { ...customConfig },
+    isChecking: isCheckingInEngine,
+    activeEnginePhase,
     stats,
   };
 }
@@ -509,9 +650,10 @@ function setCachedStatus(phoneDigits, status) {
   scheduleSaveCache();
 }
 
-async function waitForConnectionRecovery(maxWaitMs = 45000, onProgressCallback = null) {
+async function waitForConnectionRecovery(maxWaitMs = 45000, onProgressCallback = null, shouldAbort = null) {
   const start = Date.now();
   while (Date.now() - start < maxWaitMs) {
+    if (shouldAbort?.()) return false;
     if (sock && connectionStatus === "connected") return true;
     const remSec = Math.ceil((maxWaitMs - (Date.now() - start)) / 1000);
     onProgressCallback?.(`A aguardar reconexão automática do WhatsApp (${remSec}s)…`);
@@ -520,11 +662,13 @@ async function waitForConnectionRecovery(maxWaitMs = 45000, onProgressCallback =
   return Boolean(sock && connectionStatus === "connected");
 }
 
-async function queryMicroBatchWithRetry(formattedSlice, onWaitStatus) {
+async function queryMicroBatchWithRetry(formattedSlice, onWaitStatus, shouldAbort = null) {
   const maxAttempts = 3;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (shouldAbort?.()) return [];
     if (!sock || connectionStatus !== "connected") {
-      const recovered = await waitForConnectionRecovery(45000, onWaitStatus);
+      const recovered = await waitForConnectionRecovery(45000, onWaitStatus, shouldAbort);
+      if (shouldAbort?.()) return [];
       if (!recovered) {
         throw new Error("A conexão com o WhatsApp foi interrompida. Verifique se o aparelho permanece conectado.");
       }
@@ -533,15 +677,20 @@ async function queryMicroBatchWithRetry(formattedSlice, onWaitStatus) {
       const response = await sock.onWhatsApp(...formattedSlice);
       return Array.isArray(response) ? response : [];
     } catch (err) {
+      if (shouldAbort?.()) return [];
       const msg = String(err?.message || "").toLowerCase();
       if (msg.includes("rate") || msg.includes("429") || msg.includes("timeout") || msg.includes("timed out")) {
         if (attempt + 1 < maxAttempts) {
           const emergencyMs = 90000; // 1m30s de pausa automática de emergência antes de continuar sozinho
-          await waitWithCountdown(emergencyMs, (timeText) => {
-            onWaitStatus?.(
-              `Pausa de segurança Anti-Ban (WhatsApp pediu abrandamento) · retoma automaticamente em ${timeText}…`,
-            );
-          });
+          await waitWithCountdown(
+            emergencyMs,
+            (timeText) => {
+              onWaitStatus?.(
+                `Pausa de segurança Anti-Ban (WhatsApp pediu abrandamento) · retoma automaticamente em ${timeText}…`,
+              );
+            },
+            shouldAbort,
+          );
           continue;
         }
         throw new Error(
@@ -549,9 +698,13 @@ async function queryMicroBatchWithRetry(formattedSlice, onWaitStatus) {
         );
       }
       if (attempt + 1 < maxAttempts) {
-        await waitWithCountdown(15000, (timeText) => {
-          onWaitStatus?.(`Pausa de estabilização da ligação · retoma automaticamente em ${timeText}…`);
-        });
+        await waitWithCountdown(
+          15000,
+          (timeText) => {
+            onWaitStatus?.(`Pausa de estabilização da ligação · retoma automaticamente em ${timeText}…`);
+          },
+          shouldAbort,
+        );
         continue;
       }
       throw new Error(
@@ -568,7 +721,11 @@ async function queryMicroBatchWithRetry(formattedSlice, onWaitStatus) {
  *   e depois CONTINUA AUTOMATICAMENTE sem precisar de clique manual!
  */
 async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
-  const { onProgress = null, shouldAbort = null } = options;
+  const { onProgress = null, shouldAbort: externalShouldAbort = null } = options;
+  const runGeneration = engineAbortGeneration;
+  const shouldAbort = () => (
+    engineAbortGeneration !== runGeneration || Boolean(externalShouldAbort?.())
+  );
 
   if (!sock || connectionStatus !== "connected") {
     const error = new Error(
@@ -586,8 +743,16 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
 
   await previousLock;
 
+  if (shouldAbort()) {
+    releaseLock();
+    return phones.map((phone) => ({ phone, status: "unknown" }));
+  }
+
+  isCheckingInEngine = true;
+
   try {
-    const profile = PROTECTION_PROFILES[currentProtectionMode] || PROTECTION_PROFILES.safe;
+    const getActiveProfile = () => PROTECTION_PROFILES[currentProtectionMode] || PROTECTION_PROFILES.safe;
+    let profile = getActiveProfile();
     const resultByDigits = new Map();
     const phonesToQuery = [];
     let completedCount = 0;
@@ -617,6 +782,7 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
     }
 
     const emitProgress = (phaseMessage, latestBatchResults = null) => {
+      activeEnginePhase = phaseMessage || null;
       onProgress?.({
         completed: completedCount,
         total: phones.length,
@@ -638,16 +804,16 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
     }
 
     // 2. Se o utilizador acabou de verificar outro ficheiro recentemente, faz uma pausa automática proporcional ao modo
-    const isExactBoundary = Boolean(profile.exactPauseBoundary);
-    const getNextShortPauseStep = () => (
-      profile.shortPauseEveryMin && profile.shortPauseEveryMax
-        ? randomInt(profile.shortPauseEveryMin, profile.shortPauseEveryMax)
-        : isExactBoundary
-          ? profile.shortPauseEvery
-          : profile.shortPauseEvery + randomInt(-5, 6)
-    );
+    const getNextShortPauseStep = (prof) => {
+      const isExact = Boolean(prof.exactPauseBoundary);
+      return prof.shortPauseEveryMin && prof.shortPauseEveryMax
+        ? randomInt(prof.shortPauseEveryMin, prof.shortPauseEveryMax)
+        : isExact
+          ? prof.shortPauseEvery
+          : prof.shortPauseEvery + randomInt(-5, 6);
+    };
 
-    if (phonesToQuery.length > 0) {
+    if (phonesToQuery.length > 0 && !shouldAbort()) {
       const stats = getRecentQueryStats();
       if (profile.id === "batch500_600") {
         const last5Min = recentQueryTimestamps.filter((t) => Date.now() - t < 5 * 60 * 1000).length;
@@ -663,9 +829,10 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
             shouldAbort,
           );
         }
-      } else if (stats.last15Min >= 180 && phonesToQuery.length > 5) {
+      } else if (profile.id !== "custom" && stats.last15Min >= 180 && phonesToQuery.length > 5) {
+        const isExactBoundary = Boolean(profile.exactPauseBoundary);
         const preCooldownMs = isExactBoundary
-          ? randomInt(6000, 12000) // apenas 6s a 12s no modo agressivo
+          ? randomInt(6000, 12000)
           : stats.last15Min >= 500
             ? randomInt(120000, 180000)
             : randomInt(60000, 100000);
@@ -684,16 +851,20 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
     // 3. Processar toda a lista continuamente com pausas automáticas (sem pedir clique!)
     let cursor = 0;
     let queriedInThisRun = 0;
-    let currentPauseBlockSize = getNextShortPauseStep();
+    let currentPauseBlockSize = getNextShortPauseStep(profile);
     let nextShortPauseAt = currentPauseBlockSize;
-    let nextLongPauseAt = isExactBoundary
+    let nextLongPauseAt = profile.exactPauseBoundary
       ? profile.longPauseEvery
       : profile.longPauseEvery + randomInt(-15, 15);
 
     while (cursor < phonesToQuery.length) {
-      if (shouldAbort?.()) {
+      if (shouldAbort()) {
         break;
       }
+
+      // Re-ler perfil ativo em cada iteração para aplicar ajustes manuais em tempo real!
+      profile = getActiveProfile();
+      const isExactBoundary = Boolean(profile.exactPauseBoundary);
 
       const remainingUntilPause = Math.max(1, nextShortPauseAt - queriedInThisRun);
       const rawBatchSize = phonesToQuery.length === 1
@@ -706,9 +877,17 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
       cursor += slice.length;
 
       const formattedSlice = slice.map((phone) => `+${digitsOnly(phone)}`);
-      const response = await queryMicroBatchWithRetry(formattedSlice, (waitMsg) => {
-        emitProgress(waitMsg);
-      });
+      const response = await queryMicroBatchWithRetry(
+        formattedSlice,
+        (waitMsg) => {
+          emitProgress(waitMsg);
+        },
+        shouldAbort,
+      );
+
+      if (shouldAbort()) {
+        break;
+      }
 
       const verifiedInSlice = new Set();
       for (const item of response) {
@@ -745,44 +924,48 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
       queriedInThisRun += slice.length;
 
       emitProgress(
-        `A verificar automaticamente (${profile.label}) · ${completedCount.toLocaleString("pt-PT")} de ${phones.length.toLocaleString("pt-PT")} números concluídos…`,
+        `A verificar (${profile.label}) · ${completedCount.toLocaleString("pt-PT")} de ${phones.length.toLocaleString("pt-PT")} números concluídos…`,
         sliceResults,
       );
 
       // Se ainda faltam números na lista, aplica a pausa adequada e continua sozinho automaticamente!
-      if (cursor < phonesToQuery.length) {
-        if (queriedInThisRun >= nextLongPauseAt) {
+      if (cursor < phonesToQuery.length && !shouldAbort()) {
+        if (queriedInThisRun >= nextLongPauseAt && profile.longPauseMaxMs > 0) {
           const longPauseMs = randomInt(profile.longPauseMinMs, profile.longPauseMaxMs);
           nextLongPauseAt = isExactBoundary
             ? queriedInThisRun + profile.longPauseEvery
             : queriedInThisRun + profile.longPauseEvery + randomInt(-15, 15);
-          currentPauseBlockSize = getNextShortPauseStep();
+          currentPauseBlockSize = getNextShortPauseStep(profile);
           nextShortPauseAt = queriedInThisRun + currentPauseBlockSize;
 
-          await waitWithCountdown(
-            longPauseMs,
-            (timeText) => {
-              emitProgress(
-                `Pausa longa Anti-Ban (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")} verificados) · Continua automaticamente em ${timeText}…`,
-              );
-            },
-            shouldAbort,
-          );
+          if (longPauseMs > 0) {
+            await waitWithCountdown(
+              longPauseMs,
+              (timeText) => {
+                emitProgress(
+                  `Pausa longa Anti-Ban (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")} verificados) · Continua automaticamente em ${timeText}…`,
+                );
+              },
+              shouldAbort,
+            );
+          }
         } else if (queriedInThisRun >= nextShortPauseAt) {
           const shortPauseMs = randomInt(profile.shortPauseMinMs, profile.shortPauseMaxMs);
           const finishedBlockSize = currentPauseBlockSize;
-          currentPauseBlockSize = getNextShortPauseStep();
+          currentPauseBlockSize = getNextShortPauseStep(profile);
           nextShortPauseAt = queriedInThisRun + currentPauseBlockSize;
 
-          await waitWithCountdown(
-            shortPauseMs,
-            (timeText) => {
-              emitProgress(
-                `Pausa Anti-Ban após ${finishedBlockSize} números (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")} verificados) · Continua sozinho em ${timeText}…`,
-              );
-            },
-            shouldAbort,
-          );
+          if (shortPauseMs > 0) {
+            await waitWithCountdown(
+              shortPauseMs,
+              (timeText) => {
+                emitProgress(
+                  `Pausa programada após ${finishedBlockSize} números (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")} verificados) · Continua sozinho em ${timeText}…`,
+                );
+              },
+              shouldAbort,
+            );
+          }
         } else {
           const fatigueMultiplier = !isExactBoundary && recentQueryTimestamps.length > 400 ? 1.45 : 1.0;
           const jitterMs = Math.round(
@@ -795,12 +978,12 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
                 emitProgress(
                   profile.id === "batch10_13"
                     ? `Pausa Anti-Ban após ${slice.length} números (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")} verificados) · Continua sozinho em ${timeText}…`
-                    : `Cadência segura Anti-Ban (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")}) · próximo micro-lote em ${timeText}…`,
+                    : `Cadência segura (${completedCount.toLocaleString("pt-PT")}/${phones.length.toLocaleString("pt-PT")}) · próximo lote em ${timeText}…`,
                 );
               },
               shouldAbort,
             );
-          } else {
+          } else if (jitterMs > 0) {
             await wait(jitterMs);
           }
         }
@@ -812,6 +995,8 @@ async function checkNumbersOnOwnWhatsApp(phones, options = {}) {
       status: resultByDigits.get(digitsOnly(phone)) || "unknown",
     }));
   } finally {
+    isCheckingInEngine = false;
+    activeEnginePhase = null;
     releaseLock();
   }
 }
@@ -827,6 +1012,9 @@ module.exports = {
   disconnectWhatsAppEngine,
   getEngineState,
   setProtectionMode,
+  setCustomConsultationConfig,
+  cancelAllRunningChecks,
   clearVerifiedCache,
   checkNumbersOnOwnWhatsApp,
 };
+

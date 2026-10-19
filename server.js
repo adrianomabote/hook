@@ -12,6 +12,8 @@ const {
   disconnectWhatsAppEngine,
   getEngineState,
   setProtectionMode,
+  setCustomConsultationConfig,
+  cancelAllRunningChecks,
   clearVerifiedCache,
   checkNumbersOnOwnWhatsApp,
 } = require("./whatsapp-engine");
@@ -30,7 +32,7 @@ const MAX_SYNCHRONOUS_NUMBERS = 1;
 const MAX_NUMBERS_PER_CONSULTATION = 100_000;
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const RATE_WINDOW_MS = 60 * 1000;
-const MAX_REQUESTS_PER_WINDOW = 30;
+const MAX_REQUESTS_PER_WINDOW = 120;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 10;
 const AUTH_SESSION_MS = 12 * 60 * 60 * 1000;
@@ -339,11 +341,17 @@ function digitsOnly(value) {
 }
 
 function removeExpiredCheckJobs() {
-  const cutoff = Date.now() - JOB_RETENTION_MS;
+  const now = Date.now();
+  const cutoff = now - JOB_RETENTION_MS;
+  const staleActiveCutoff = now - 30 * 60 * 1000; // 30 min sem atualização
   for (const [jobId, job] of checkJobs) {
     const completedJobExpired = job.finishedAt && job.finishedAt < cutoff;
     const pausedJobExpired = job.status === "paused" && job.pausedAt && job.pausedAt < cutoff;
-    if (completedJobExpired || pausedJobExpired) {
+    const staleRunningJob = ["queued", "running"].includes(job.status)
+      && job.updatedAt
+      && job.updatedAt < staleActiveCutoff;
+    if (completedJobExpired || pausedJobExpired || staleRunningJob) {
+      job.aborted = true;
       checkJobs.delete(jobId);
       job.phones = null;
       job.resultByNumber = null;
@@ -351,42 +359,137 @@ function removeExpiredCheckJobs() {
   }
 }
 
+function getActiveJobs() {
+  removeExpiredCheckJobs();
+  return [...checkJobs.values()].filter((job) => (
+    !job.aborted && ["queued", "running", "paused"].includes(job.status)
+  ));
+}
+
+function serializeJobSummary(job, includeResults = false) {
+  if (!job) return null;
+  const partialResults = Array.isArray(job.partialResults) ? job.partialResults : [];
+  let validCount = 0;
+  let invalidCount = 0;
+  for (const item of partialResults) {
+    if (item?.status === "valid") validCount += 1;
+    else if (item?.status === "invalid") invalidCount += 1;
+  }
+  const summary = {
+    jobId: job.id,
+    status: job.status,
+    total: job.total,
+    completed: job.completed,
+    validCount,
+    invalidCount,
+    phaseMessage: job.phaseMessage || null,
+    startedAt: job.startedAt || null,
+    updatedAt: job.updatedAt || null,
+    error: job.error || null,
+  };
+  if (includeResults) {
+    summary.partialResults = partialResults;
+    summary.results = job.results || null;
+  }
+  return summary;
+}
+
+function cancelAndClearJobs(targetJobId = null) {
+  let clearedCount = 0;
+  let preservedPartialResults = [];
+
+  for (const [jobId, job] of checkJobs) {
+    if (targetJobId && jobId !== targetJobId) continue;
+    if (["queued", "running", "paused"].includes(job.status) || targetJobId === jobId) {
+      job.aborted = true;
+      job.status = "cancelled";
+      job.phaseMessage = "Verificação interrompida e limpa manualmente pelo utilizador.";
+      job.finishedAt = Date.now();
+      if (Array.isArray(job.partialResults) && job.partialResults.length > preservedPartialResults.length) {
+        preservedPartialResults = [...job.partialResults];
+      }
+      if (Array.isArray(job.phones) && job.resultByNumber instanceof Map) {
+        job.results = job.phones.map((phone) => ({
+          phone,
+          status: job.resultByNumber.get(digitsOnly(phone)) || "unknown",
+        }));
+      }
+      checkJobs.delete(jobId);
+      clearedCount += 1;
+    }
+  }
+
+  cancelAllRunningChecks({ resetCooldown: true });
+  return { clearedCount, partialResults: preservedPartialResults };
+}
+
 async function processCheckJob(job) {
+  if (job.aborted) {
+    checkJobs.delete(job.id);
+    return;
+  }
   job.status = "running";
   job.pausedAt = null;
+  job.updatedAt = Date.now();
 
   try {
     const results = await checkNumbersOnOwnWhatsApp(job.phones, {
+      shouldAbort: () => Boolean(job.aborted),
       onProgress: (progress) => {
+        if (job.aborted) return;
         job.completed = progress.completed;
         job.phaseMessage = progress.phaseMessage || null;
+        job.updatedAt = Date.now();
         if (Array.isArray(progress.latestBatchResults)) {
           for (const item of progress.latestBatchResults) {
-            job.resultByNumber.set(digitsOnly(item.phone), item.status);
-            job.partialResults.push(item);
+            const d = digitsOnly(item.phone);
+            if (!job.resultByNumber?.has(d)) {
+              job.partialResults.push(item);
+            }
+            job.resultByNumber?.set(d, item.status);
           }
         }
       },
     });
-    results.forEach((result) => {
-      job.resultByNumber.set(digitsOnly(result.phone), result.status);
-    });
-    job.completed = job.phones.length;
+    if (job.aborted) {
+      checkJobs.delete(job.id);
+      return;
+    }
+    if (Array.isArray(results) && job.resultByNumber) {
+      results.forEach((result) => {
+        job.resultByNumber.set(digitsOnly(result.phone), result.status);
+      });
+    }
+    if (Array.isArray(job.phones)) {
+      job.completed = job.phones.length;
+    }
     job.phaseMessage = null;
   } catch (error) {
+    if (job.aborted) {
+      checkJobs.delete(job.id);
+      return;
+    }
     job.status = "failed";
     job.error = error.message;
     job.phaseMessage = null;
   }
 
-  job.results = job.phones.map((phone) => ({
-    phone,
-    status: job.resultByNumber.get(digitsOnly(phone)) || "unknown",
-  }));
+  if (job.aborted) {
+    checkJobs.delete(job.id);
+    return;
+  }
+
+  if (Array.isArray(job.phones) && job.resultByNumber) {
+    job.results = job.phones.map((phone) => ({
+      phone,
+      status: job.resultByNumber.get(digitsOnly(phone)) || "unknown",
+    }));
+  }
   job.phones = null;
   job.resultByNumber = null;
   job.finishedAt = Date.now();
-  if (job.status !== "failed") job.status = "completed";
+  job.updatedAt = Date.now();
+  if (job.status !== "failed" && job.status !== "cancelled") job.status = "completed";
   const cleanupTimer = setTimeout(() => checkJobs.delete(job.id), JOB_RETENTION_MS);
   cleanupTimer.unref?.();
 }
@@ -404,7 +507,7 @@ async function checkPhones(request, response) {
   if (!isWithinRateLimit(clientAddress(request))) {
     sendJson(response, 429, {
       code: "local_rate_limit",
-      error: "Muitas consultas em pouco tempo. Aguarde um minuto e tente novamente.",
+      error: "Muitas consultas em pouco tempo. Aguarde alguns segundos e tente novamente.",
     });
     return;
   }
@@ -449,17 +552,23 @@ async function checkPhones(request, response) {
   if (phones.length > MAX_SYNCHRONOUS_NUMBERS) {
     removeExpiredCheckJobs();
     const address = clientAddress(request);
-    const hasActiveJob = [...checkJobs.values()].some((job) => (
-      job.address === address && ["queued", "running", "paused"].includes(job.status)
-    ));
-    if (hasActiveJob) {
+
+    if (body.forceReplace) {
+      cancelAndClearJobs();
+    }
+
+    const activeJobs = getActiveJobs();
+    if (activeJobs.length > 0) {
+      const currentJob = activeJobs[0];
       sendJson(response, 429, {
         code: "check_already_running",
-        error: "Já existe uma verificação em curso. Aguarde que termine antes de iniciar outra.",
+        error: "Já existe uma verificação em curso. Pode acompanhá-la ao vivo, parar/limpar a verificação em andamento ou substituí-la.",
+        activeJob: serializeJobSummary(currentJob, false),
       });
       return;
     }
 
+    const now = Date.now();
     const job = {
       id: randomUUID(),
       address,
@@ -467,14 +576,17 @@ async function checkPhones(request, response) {
       total: phones.length,
       completed: 0,
       status: "queued",
-      phaseMessage: "A preparar verificação automática com proteção Anti-Banimento…",
+      phaseMessage: "A preparar verificação com proteção Anti-Banimento…",
       resultByNumber: new Map(),
       partialResults: [],
       results: null,
       error: null,
+      startedAt: now,
+      updatedAt: now,
       finishedAt: null,
       pausedAt: null,
       pauseVersion: 0,
+      aborted: false,
     };
     checkJobs.set(job.id, job);
     setImmediate(() => {
@@ -504,10 +616,10 @@ async function checkPhones(request, response) {
 function getCheckJob(request, response, jobId) {
   removeExpiredCheckJobs();
   const job = checkJobs.get(jobId);
-  if (!job || job.address !== clientAddress(request)) {
+  if (!job) {
     sendJson(response, 404, {
       code: "check_not_found",
-      error: "A verificação não foi encontrada ou já expirou.",
+      error: "A verificação não foi encontrada ou já foi concluída/limpa.",
     });
     return;
   }
@@ -527,7 +639,7 @@ function getCheckJob(request, response, jobId) {
 function continueCheckJob(request, response, jobId) {
   removeExpiredCheckJobs();
   const job = checkJobs.get(jobId);
-  if (!job || job.address !== clientAddress(request)) {
+  if (!job) {
     sendJson(response, 404, {
       code: "check_not_found",
       error: "A verificação não foi encontrada ou já expirou.",
@@ -539,6 +651,7 @@ function continueCheckJob(request, response, jobId) {
     job.pausedAt = null;
     job.status = "queued";
     job.phaseMessage = "A retomar a próxima divisão em modo seguro…";
+    job.updatedAt = Date.now();
     setImmediate(() => {
       void processCheckJob(job);
     });
@@ -667,11 +780,14 @@ const server = http.createServer((request, response) => {
 
   if (url.pathname === "/api/health" && request.method === "GET") {
     const engineState = getEngineState();
+    const activeJobs = getActiveJobs();
     sendJson(response, 200, {
       provider: "Motor Próprio",
       tokenConfigured: engineState.connected,
       ownEngineConnected: engineState.connected,
       engine: engineState,
+      activeJob: activeJobs.length > 0 ? serializeJobSummary(activeJobs[0], false) : null,
+      activeJobCount: activeJobs.length,
       maxNumbersPerConsultation: MAX_NUMBERS_PER_CONSULTATION,
       providerBatchSize: DIVISION_BATCH_SIZE,
     });
@@ -727,6 +843,24 @@ const server = http.createServer((request, response) => {
     return;
   }
 
+  if (url.pathname === "/api/whatsapp/custom-config" && request.method === "POST") {
+    void (async () => {
+      try {
+        const body = await readJson(request);
+        const state = setCustomConsultationConfig({
+          blockSize: body?.blockSize,
+          pauseSeconds: body?.pauseSeconds,
+          microBatchSize: body?.microBatchSize,
+          delaySeconds: body?.delaySeconds,
+        });
+        sendJson(response, 200, state);
+      } catch (error) {
+        sendJson(response, error.statusCode || 400, { error: error.message });
+      }
+    })();
+    return;
+  }
+
   if (url.pathname === "/api/whatsapp/clear-cache" && request.method === "POST") {
     clearVerifiedCache();
     sendJson(response, 200, getEngineState());
@@ -740,9 +874,54 @@ const server = http.createServer((request, response) => {
     return;
   }
 
+  if (url.pathname === "/api/check/active" && request.method === "GET") {
+    const activeJobs = getActiveJobs();
+    const includeResults = url.searchParams.get("includeResults") === "1";
+    sendJson(response, 200, {
+      activeJob: activeJobs.length > 0 ? serializeJobSummary(activeJobs[0], includeResults) : null,
+      activeJobCount: activeJobs.length,
+      engine: getEngineState(),
+    });
+    return;
+  }
+
+  if ((url.pathname === "/api/check/clear" || url.pathname === "/api/check/cancel") && request.method === "POST") {
+    void (async () => {
+      let targetJobId = null;
+      try {
+        const body = await readJson(request);
+        if (body && typeof body.jobId === "string") {
+          targetJobId = body.jobId;
+        }
+      } catch {
+        // Sem corpo JSON é permitido
+      }
+      const { clearedCount, partialResults } = cancelAndClearJobs(targetJobId);
+      sendJson(response, 200, {
+        ok: true,
+        clearedCount,
+        partialResults,
+        engine: getEngineState(),
+      });
+    })();
+    return;
+  }
+
   const checkJobMatch = url.pathname.match(/^\/api\/check\/([a-f0-9-]{36})$/i);
   if (checkJobMatch && request.method === "GET") {
     getCheckJob(request, response, checkJobMatch[1]);
+    return;
+  }
+
+  const cancelJobMatch = url.pathname.match(/^\/api\/check\/([a-f0-9-]{36})\/cancel$/i);
+  if (cancelJobMatch && request.method === "POST") {
+    const { clearedCount, partialResults } = cancelAndClearJobs(cancelJobMatch[1]);
+    sendJson(response, 200, {
+      ok: true,
+      clearedCount,
+      partialResults,
+      engine: getEngineState(),
+    });
     return;
   }
 

@@ -92,18 +92,57 @@
           <div class="engine-protection-bar">
             <div class="engine-protection-control">
               <label class="field-label" for="engineProtectionSelect">Ritmo e Proteção Anti-Banimento</label>
-              <select id="engineProtectionSelect" class="select-control select-small">
-                <option value="batch500_600" selected>Bloco 500 a 600 números por pausa · Pausa de 4 a 5 minutos</option>
-                <option value="batch10_13">Cadência 10 a 13 números por pausa · Pausa de 10–15s</option>
-                <option value="batch100">Agressivo Controlado · 100 números + pausa curta de 6–12s (Rápido)</option>
-                <option value="safe">Seguro Anti-Ban · Lento (4–8 números/vez + pausas longas)</option>
-                <option value="moderate">Equilibrado · Contas antigas (8–14 números/vez + ritmo médio)</option>
-                <option value="ultra">Ultra-Blindado · Contas novas (2–4 números/vez + pausas muito longas)</option>
-              </select>
+              <div class="protection-select-row">
+                <select id="engineProtectionSelect" class="select-control select-small">
+                  <option value="batch500_600" selected>Bloco 500 a 600 números por pausa · Pausa de 4 a 5 minutos</option>
+                  <option value="batch10_13">Cadência 10 a 13 números por pausa · Pausa de 10–15s</option>
+                  <option value="batch100">Agressivo Controlado · 100 números + pausa curta de 6–12s (Rápido)</option>
+                  <option value="safe">Seguro Anti-Ban · Lento (4–8 números/vez + pausas longas)</option>
+                  <option value="moderate">Equilibrado · Contas antigas (8–14 números/vez + ritmo médio)</option>
+                  <option value="ultra">Ultra-Blindado · Contas novas (2–4 números/vez + pausas muito longas)</option>
+                  <option value="custom">Personalizado · Ajustar números e tempo manualmente</option>
+                </select>
+                <button class="button button-outline" id="toggleManualConfigButton" type="button">Ajustar número e tempo manualmente</button>
+              </div>
             </div>
             <div class="engine-cache-info">
               <span class="field-hint" id="engineStatsText">Cache Anti-Ban: 0 números guardados · 0 consultas na última hora</span>
               <button class="text-button" id="engineClearCacheButton" type="button">Limpar cache</button>
+            </div>
+          </div>
+
+          <div class="manual-config-panel" id="manualConfigPanel" hidden>
+            <div class="manual-config-head">
+              <div>
+                <strong>Ajuste Manual de Números e Tempo da Consulta</strong>
+                <span>Defina exatamente quantos números consultar por vez e o tempo de pausa entre cada bloco.</span>
+              </div>
+            </div>
+            <div class="manual-config-grid">
+              <div class="manual-config-field">
+                <label class="field-label" for="manualBlockSize">Números por bloco (antes da pausa)</label>
+                <input id="manualBlockSize" class="select-control manual-number-input" type="number" min="1" max="100000" step="1" value="200">
+                <span class="field-hint">Ex.: 100, 250, 500 ou 1000 números</span>
+              </div>
+              <div class="manual-config-field">
+                <label class="field-label" for="manualPauseSeconds">Tempo da pausa entre blocos (segundos)</label>
+                <input id="manualPauseSeconds" class="select-control manual-number-input" type="number" min="0" max="7200" step="1" value="30">
+                <span class="field-hint">Ex.: 15s, 60s (1 min), 240s (4 min) ou 0 (sem pausa)</span>
+              </div>
+              <div class="manual-config-field">
+                <label class="field-label" for="manualMicroBatch">Números por envio simultâneo (lote)</label>
+                <input id="manualMicroBatch" class="select-control manual-number-input" type="number" min="1" max="500" step="1" value="25">
+                <span class="field-hint">Quantos números consultar de cada vez (1 a 500)</span>
+              </div>
+              <div class="manual-config-field">
+                <label class="field-label" for="manualDelaySeconds">Tempo entre cada envio (segundos)</label>
+                <input id="manualDelaySeconds" class="select-control manual-number-input" type="number" min="0" max="120" step="0.1" value="0.5">
+                <span class="field-hint">Intervalo rápido entre lotes (ex.: 0.5s, 1s, 2s)</span>
+              </div>
+            </div>
+            <div class="manual-config-actions">
+              <button class="button button-primary" id="applyManualConfigButton" type="button">Guardar e aplicar ajuste manual</button>
+              <span class="field-hint" id="manualConfigSummary">Modo manual pronto para aplicar.</span>
             </div>
           </div>
 
@@ -226,11 +265,32 @@
                 <span>Verificar lista</span>
                 <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 10h11M10 5l5 5-5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
+              <div class="batch-queue-tools">
+                <button class="button button-quiet" id="checkRunningStatusButton" type="button">Ver o que está em andamento</button>
+                <button class="button button-outline" id="clearRunningQueueButton" type="button">Limpar / Parar verificação em curso</button>
+              </div>
               <p class="field-hint" id="batchButtonHint">Conecte o Motor Próprio do WhatsApp acima para verificar listas sem depender de API externa.</p>
             </div>
+
+            <div class="active-job-banner" id="activeJobBanner" hidden aria-live="polite">
+              <div class="active-job-header">
+                <span class="active-job-badge" id="activeJobBadge">Verificação em andamento</span>
+                <strong id="activeJobTitle">Existe uma verificação ativa no servidor</strong>
+              </div>
+              <p class="active-job-details" id="activeJobDetails">A carregar detalhes da verificação em curso…</p>
+              <div class="active-job-actions">
+                <button class="button button-primary" id="attachActiveJobButton" type="button">Acompanhar em andamento</button>
+                <button class="button button-outline" id="clearActiveJobButton" type="button">Parar e limpar verificação</button>
+                <button class="button button-quiet" id="forceRestartJobButton" type="button" hidden>Limpar e iniciar esta lista agora</button>
+              </div>
+            </div>
+
             <div class="progress-wrap" id="progressWrap" hidden aria-live="polite">
               <div class="progress-top"><span id="progressLabel">A preparar a consulta…</span><span id="progressPercent">0%</span></div>
               <div class="progress-track"><span id="progressBar"></span></div>
+              <div class="progress-actions-row">
+                <button class="button button-quiet progress-stop-btn" id="stopActiveCheckButton" type="button">Parar e limpar verificação atual</button>
+              </div>
               <div class="progress-continue" id="progressContinue" hidden>
                 <p id="progressContinueHint"></p>
                 <button class="button button-primary" id="continueDivisionButton" type="button">Continuar para a próxima divisão</button>
